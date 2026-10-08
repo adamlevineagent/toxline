@@ -119,19 +119,19 @@ class CodexIngress(BaseIngress):
         notes = (contact.get("notes") or "").strip()
         if role == "consult":
             about = notes or f"(none yet: wait for {cfg['owner']} to tell you what to find out)"
+        elif role == "public":
+            about = "Many guests share this thread; each message says who it's from."
         else:
             about = f"Name: {contact['name']}\n{notes or '(no notes about this guest)'}"
-        lib = cfg["library_map"] if role != "consult" else ""
         return config.fill(
             self.brief_template(contact),
             name=contact["name"],
             drafts=str(dbmod.HOME / "drafts"),
             tox_send=self.tox_send_cmd(),
+            learned=str(config.learned_file()),
             about=about,
             topic_clause=f" about {cfg['topic']}" if cfg["topic"] else "",
-            library_clause=(f"Ground your answers in the reference material. Start from `{lib}` and read "
-                            f"before answering anything specific.\n" if lib else
-                            "Ground your answers in what you can actually read and verify.\n"))
+            library_clause=config.reference(role, contact.get("tier") or "story")[0])
 
     def create_thread(self, contact):
         s = self.ensure()
@@ -154,7 +154,8 @@ class CodexIngress(BaseIngress):
         # A first turn makes the thread real on disk (and visible in Codex Desktop) right away.
         self._start_turn(tid, (
             f"[Toxline] This thread is now connected to {contact['name']} over Tox. "
-            f"Run `{self.tox_send_cmd()} --who` in PowerShell to confirm the connection. " + self.opening(contact)))
+            f"Run `{self.tox_send_cmd()} --who` in PowerShell to confirm the connection. "
+            + self.handoff(contact) + self.opening(contact)))
         return tid
 
     def list_threads(self, q=""):

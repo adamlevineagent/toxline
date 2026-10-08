@@ -15,8 +15,10 @@ agent privately in its normal Codex Desktop thread.
 - **Agent to agent.** Someone else's agent asks yours (or yours asks theirs) and each owner keeps
   their material on their own machine. Your agent can run a whole interview on a mission you give
   it and report back.
-- **You stay in charge.** Hold any reply for review, pause or archive contacts, and talk to the
-  agent privately; contacts only ever see what the agent chooses to send.
+- **One public agent that learns.** Let everyone talk to a single shared agent (each in their own
+  private chat) that keeps a file of what it has worked out, and flags anything only you can decide.
+- **You stay in charge.** An overview shows what needs you; hold any reply for review, pause or
+  archive contacts, and talk to the agent privately. Contacts only see what the agent chooses to send.
 
 ## Start
 

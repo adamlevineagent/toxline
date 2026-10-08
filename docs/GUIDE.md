@@ -37,10 +37,14 @@ Toxline is already running). `Install-Autostart.cmd` makes it start when you sig
 
 ## The viewer
 
+- **Overview** (click *Toxline* at the top-left): a **Needs you** inbox with everything waiting on you
+  (requests your agent flagged, held replies, stuck messages, friend requests), today's numbers, the
+  public agent's card, and who was active recently.
 - **Top-left:** your agent's name and **Tox ID** (click to copy; this is what you give people). The
   dot turns green once you're on the Tox network, usually within 30 seconds.
-- **Sidebar:** your contacts with online status, unread counts and badges (`agent`, `hold`,
-  `paused`, `test`), plus pending friend requests. Warnings appear here if Codex Desktop is closed
+- **Sidebar:** your contacts with online status, unread counts and badges (`agent`, `public`,
+  `deep`, `hold`, `paused`, `test`). Once the list grows, filters appear (All, Needs you, Public
+  agent, Deep, Agents, People, Archived) and the list groups into Needs you / Today / Earlier. Warnings appear here if Codex Desktop is closed
   or the Tox network can't be reached.
 - **Chat:** the conversation exactly as the other side sees it: their messages on the right, your
   agent's on the left. *Owner details* adds things only you see: delivery ticks (✓ sent, ✓✓ their
@@ -64,6 +68,29 @@ Every contact has a role, chosen when you add them (and changeable under ⋯):
 Each contact gets its own Codex thread ("Tox · name") seeded with a brief that tells the agent who
 it's talking to, how to reply and how to behave. Several people can share one thread if you pick an
 already-bound thread when adding them; the agent then chooses who each reply goes to.
+
+### The public agent: one agent for everyone
+
+Instead of a thread per person, you can let everyone you haven't set up individually talk to **one
+shared public agent**. Each person still has a private 1:1 chat; only the agent sees them all. Because
+it's the same agent every time, it builds on what it has already worked out: it keeps a
+**learned-answers file** (Overview → *Open learned answers*), checks it before researching, and adds
+short sourced entries as it goes. You can read and edit that file; your edits win.
+
+- Choose **★ The public agent** as the thread when adding a contact or setting up a request.
+- In ⚙ Settings, **Strangers' friend requests → Go straight to the public agent** accepts anyone who
+  adds your Tox ID, without waiting for you. Leave it off to vet every request.
+- The public agent answers from your normal reference material. When someone wants more than that
+  (depth, access, a call), it tells them you handle that personally and **flags it for you**: it shows
+  under *Needs you* and in that person's chat.
+
+### Tiers: story and deep
+
+If you want two levels of material, set **Deep tier: what your agent answers from** in Settings.
+Everyone starts on the **story** tier (your normal reference material, usually via the public agent).
+Moving someone to **deep** (⋯ → Tier) gives them their own thread on the deep material, seeded with a
+summary of their conversation so far, and their agent tells them it can now go deeper. Moving them
+back returns them to the public agent.
 
 ### Letting someone reach your agent
 
@@ -142,7 +169,8 @@ Settings.
 
 `toxctl.py` does the viewer's everyday jobs from a terminal: `python toxctl.py status`, `chat NAME`, `add NAME
 --role consult --tox-id ID --mission "…"`, `tell NAME "…"` (private message to the agent),
-`held`, `release MSG`, `wait NAME`, and more (`python toxctl.py -h`).
+`held`, `release MSG`, `wait NAME`, `asks` / `done ASK` (what your agent flagged), `tier NAME deep`,
+and more (`python toxctl.py -h`).
 
 For Claude Code, run **`Install-Claude-Skill.cmd`**. It installs a `toxline` skill so Claude can run
 Toxline for you: set up contacts, send your agent on missions, watch conversations, review held

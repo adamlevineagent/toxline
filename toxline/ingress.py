@@ -11,6 +11,7 @@ that answers through the same tox-send API, so everything else can be tested
 without spending model turns.
 """
 import json
+import re
 import threading
 import time
 import urllib.request
@@ -23,6 +24,8 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_PERSONA = HERE / "persona_default.md"
 CONSULT_PERSONA = HERE / "persona_consult.md"          # our agent questions someone else's agent
 AGENT_GUEST_ADDENDUM = HERE / "persona_agent_guest.md"  # added to the guide brief when the guest is an agent
+PUBLIC_ADDENDUM = HERE / "persona_public.md"            # added for the shared public agent
+PUBLIC = {"id": "public", "name": "everyone", "role": "public", "tier": "story", "notes": ""}
 ROLES = ("person", "agent", "consult")
 
 
@@ -83,16 +86,34 @@ class BaseIngress:
         text = self.persona_text()
         if role == "agent":
             text = text.rstrip() + "\n" + AGENT_GUEST_ADDENDUM.read_text(encoding="utf-8")
+        if role == "public":
+            text = text.rstrip() + "\n" + PUBLIC_ADDENDUM.read_text(encoding="utf-8")
         return text
+
+    def is_public_thread(self, thread_id):
+        return bool(thread_id) and thread_id == self.j.get("public_thread")
 
     def envelope(self, contact, message):
         tag = ", an AI agent" if is_agent(contact) else ""
-        return f"[Tox message from {contact['name']}{tag}]\n{message['body']}"
+        who = f"{contact['name']} ({contact['id']})" if self.is_public_thread(contact.get("thread_id")) else contact["name"]
+        # A message can't pose as another guest's message or as a note from Toxline itself.
+        body = re.sub(r"\[(\s*)(Tox message from|Toxline)", r"(\1\2", message["body"], flags=re.I)
+        return f"[Tox message from {who}{tag}]\n{body}"
+
+    def handoff(self, contact):
+        h = (contact.get("handoff") or "").strip()
+        return h + "\n\n---\n\n" if h else ""
 
     def opening(self, contact):
         """What a freshly created thread should do once it has read its brief."""
         from . import config
         owner, name = config.load()["owner"], contact["name"]
+        if contact.get("handoff"):
+            return (f"Then send {name} one short message: {owner} has opened up the full material for them, "
+                    f"so you can go deeper now; pick up where the conversation left off. Then reply here in one line.")
+        if contact.get("role") == "public":
+            return ("Then reply here in one short line that you're ready. Guests arrive on their own; "
+                    "answer each one when they write.")
         if (contact.get("role") or "person") == "consult":
             if (contact.get("notes") or "").strip():
                 return (f"Then open the conversation: write your first message for the mission and send it "
@@ -202,6 +223,8 @@ class FakeIngress(BaseIngress):
                 turn["items"].append({"type": "commandExecution", "command": f'tox-send "{reply}"',
                                       "status": "completed", "exitCode": 0, "output": "To guest: DELIVERED"})
                 who = text[len("[Tox message from "):text.index("]")].replace(", an AI agent", "")
+                if who.endswith(")") and " (" in who:   # shared thread: "Name (id)"
+                    who = who[who.rindex(" (") + 2:-1]
                 data = json.dumps({"thread_id": tid, "origin": "fake-agent", "body": reply, "to": who}).encode()
                 req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/send", data=data,
                                              headers={"Content-Type": "application/json"})

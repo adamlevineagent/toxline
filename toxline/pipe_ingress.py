@@ -219,16 +219,19 @@ class DesktopIngress(CodexIngress):
             caller = self.home_thread(caller)
         from . import config
         cfg = config.load()
-        reads = config.reference(contact.get("role") or "person")[1]
+        reads = config.reference(contact.get("role") or "person", contact.get("tier") or "story")[1]
+        if contact.get("role") == "public" and config.learned_file().exists():
+            reads = reads + [config.learned_file()]
         first = ("Before your first reply, read " + ", ".join(f"`{r}`" for r in reads) + ". ") if reads else ""
-        prompt = self.brief(contact) + "\n\n---\n\n" + first + self.opening(contact)
+        prompt = self.brief(contact) + "\n\n---\n\n" + self.handoff(contact) + first + self.opening(contact)
         here = str(Path(__file__).resolve().parent.parent).lower()
         projects = self._tool("list_projects", {}, caller).get("projects", [])
         proj = max((p for p in projects if here.startswith(p["path"].lower().rstrip("\\") + "\\")),
                    key=lambda p: len(p["path"]), default=None)
         target = ({"type": "project", "projectId": proj["projectId"], "environment": {"type": "local"}}
                   if proj else {"type": "projectless", "directoryName": f"tox-{contact['id']}"})
-        r = self._tool("create_thread", {"title": f"Tox · {contact['name']}", "prompt": prompt,
+        title = "Tox · public agent" if contact.get("role") == "public" else f"Tox · {contact['name']}"
+        r = self._tool("create_thread", {"title": title, "prompt": prompt,
                                          "target": target}, caller)
         log("created Desktop thread for", contact["name"], r.get("threadId"))
         return r["threadId"]

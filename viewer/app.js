@@ -2,7 +2,7 @@
 "use strict";
 
 const $ = (s, el = document) => el.querySelector(s);
-const state = { snap: null, current: null, messages: [], showArchived: false, filter: "", typing: {} };
+const state = { snap: null, current: null, messages: [], filter: "", typing: {}, view: (() => { try { return localStorage.getItem("toxline.view") || "all"; } catch (e) { return "all"; } })() };
 const COLORS = ["#7c3aed", "#db2777", "#ea580c", "#0891b2", "#16a34a", "#4f46e5", "#ca8a04", "#dc2626", "#0d9488", "#9333ea"];
 
 async function api(method, path, body) {
@@ -59,47 +59,150 @@ function renderMe() {
   $("#me-id").title = me.tox_id ? `Agent Tox ID (${me.connection === "none" ? "connecting to the Tox network…" : "connected via " + me.connection.toUpperCase()}). Click to copy.` : "";
 }
 
-function renderRequests() {
-  const el = $("#requests");
-  el.innerHTML = "";
-  for (const r of state.snap.requests) {
-    const d = document.createElement("div");
-    d.className = "request";
-    d.innerHTML = `<b>${r.returning ? `${esc(r.returning)} is back (archived guest)` : r.agent ? "Friend request from an agent" : "Friend request"}</b> <span class="hint">${ago(r.at)}</span><div>${esc(r.greeting || "(no message)")}</div>
-      <code>${r.public_key.slice(0, 16)}…</code>
-      <div class="row"><button class="primary">Set up guest</button><button class="ghost">Dismiss</button></div>`;
-    const [setup, dismiss] = d.querySelectorAll("button");
-    if (r.returning) setup.textContent = "Restore guest";
-    setup.onclick = () => openNew(r.returning
-      ? { tox_id: r.public_key, fromRequest: true, returning: r.returning, name: r.returning, thread: r.thread_id || "", role: r.role || "person" }
-      : { tox_id: r.public_key, fromRequest: true, role: r.agent ? "agent" : "person", notes: r.greeting ? `Their request said: ${r.greeting}` : "" });
-    dismiss.onclick = () => api("POST", `/api/requests/${r.public_key}/dismiss`).then(refresh);
-    el.append(d);
-  }
+// What each contact is waiting on the owner for (drives the "Needs you" filter and inbox).
+function needs(c) {
+  const asks = (state.snap.owner_requests || []).filter(r => r.contact_id === c.id).length;
+  return { asks, held: c.held || 0, stuck: c.stuck || 0, any: asks + (c.held || 0) + (c.stuck || 0) > 0 };
+}
+const isPublic = c => c.thread_id && c.thread_id === state.snap.public_thread;
+const isAgent = c => ["agent", "consult"].includes(c.role);
+const FILTERS = [
+  ["all", "All", c => c.status !== "archived"],
+  ["needs", "Needs you", c => c.status !== "archived" && needs(c).any],
+  ["public", "Public agent", c => c.status !== "archived" && isPublic(c)],
+  ["deep", "Deep", c => state.snap.tiers && c.status !== "archived" && !isPublic(c) && c.tier === "deep"],
+  ["agents", "Agents", c => c.status !== "archived" && isAgent(c)],
+  ["people", "People", c => c.status !== "archived" && !isAgent(c)],
+  ["archived", "Archived", c => c.status === "archived"],
+];
+
+function renderChips() {
+  const el = $("#chips"), cs = state.snap.contacts;
+  const counts = Object.fromEntries(FILTERS.map(([k, , fn]) => [k, cs.filter(fn).length]));
+  // A short list needs no filters; they appear once there's something to sort through.
+  const show = cs.length > 6 || counts.archived > 0 || counts.needs > 0;
+  el.hidden = !show;
+  if (!show) { state.view = "all"; return; }
+  if (!counts[state.view] && state.view !== "all") state.view = "all";
+  el.innerHTML = FILTERS.filter(([k]) => k === "all" || counts[k]).map(([k, label]) =>
+    `<button class="chip ${k === state.view ? "on" : ""} ${k === "needs" ? "attn" : ""}" data-view="${k}">${label}<span>${counts[k]}</span></button>`).join("");
+}
+$("#chips").addEventListener("click", e => {
+  const b = e.target.closest("[data-view]");
+  if (!b) return;
+  state.view = b.dataset.view;
+  try { localStorage.setItem("toxline.view", state.view); } catch (err) {}
+  renderChips(); renderContacts();
+});
+
+function contactRow(c) {
+  const a = document.createElement("a");
+  const n = needs(c);
+  a.className = "contact" + (c.id === state.current ? " active" : "") + (c.status === "archived" ? " archived" : "");
+  a.href = `#${c.id}`;
+  const last = c.last;
+  const prefix = last ? (last.direction === "out" ? "Agent: " : "") : "";
+  const dotCls = c.status === "paused" ? "paused" : (c.kind === "test" ? "udp" : c.online);
+  const flags = [c.kind === "test" ? "test" : "", ROLE_BADGE[c.role] || "", isPublic(c) ? "public" : (state.snap.tiers && c.tier === "deep" ? "deep" : ""),
+    c.hold_outgoing ? "hold" : "", c.status === "paused" ? "paused" : ""].filter(Boolean);
+  const attn = n.asks ? "asks for you" : n.held ? `${n.held} held` : n.stuck ? "stuck" : "";
+  a.innerHTML = `<div class="avatar" style="background:${color(c.id)}">${esc(initials(c.name))}<span class="dot ${dotCls}"></span></div>
+    <div style="min-width:0"><div class="name"><span>${esc(c.name)}</span>${flags.map(f => `<span class="badge ${f === "hold" ? "held" : ""}">${f}</span>`).join("")}</div>
+    <div class="preview">${attn ? `<b class="attn-text">${attn}</b> · ` : ""}${last ? esc(prefix + last.body.split("\n")[0]) : (c.thread_id ? "No messages yet" : "⚠ no agent thread")}</div></div>
+    <div class="meta"><span>${last ? ago(last.created_at) : ""}</span>${c.unread && c.id !== state.current ? `<span class="unread">${c.unread}</span>` : ""}</div>`;
+  return a;
 }
 
 function renderContacts() {
   const nav = $("#contacts");
   nav.innerHTML = "";
-  const f = state.filter.toLowerCase();
-  for (const c of state.snap.contacts) {
-    if (c.status === "archived" && !state.showArchived) continue;
-    if (f && !(`${c.name} ${c.id} ${c.tox_name || ""} ${c.notes}`.toLowerCase().includes(f))) continue;
-    const a = document.createElement("a");
-    a.className = "contact" + (c.id === state.current ? " active" : "") + (c.status === "archived" ? " archived" : "");
-    a.href = `#${c.id}`;
-    const last = c.last;
-    const prefix = last ? (last.direction === "out" ? "Agent: " : "") : "";
-    const dotCls = c.status === "paused" ? "paused" : (c.kind === "test" ? "udp" : c.online);
-    const flags = [c.kind === "test" ? "test" : "", ROLE_BADGE[c.role] || "", c.hold_outgoing ? "hold" : "", c.status === "paused" ? "paused" : ""].filter(Boolean);
-    a.innerHTML = `<div class="avatar" style="background:${color(c.id)}">${esc(initials(c.name))}<span class="dot ${dotCls}"></span></div>
-      <div style="min-width:0"><div class="name"><span>${esc(c.name)}</span>${flags.map(f => `<span class="badge ${f === "hold" ? "held" : ""}">${f}</span>`).join("")}</div>
-      <div class="preview">${last ? esc(prefix + last.body.split("\n")[0]) : (c.thread_id ? "No messages yet" : "⚠ no agent thread")}</div></div>
-      <div class="meta"><span>${last ? ago(last.created_at) : ""}</span>${c.unread && c.id !== state.current ? `<span class="unread">${c.unread}</span>` : ""}</div>`;
-    nav.append(a);
+  const q = state.filter.toLowerCase();
+  const fn = (FILTERS.find(([k]) => k === state.view) || FILTERS[0])[2];
+  const list = state.snap.contacts.filter(c => (q ? c.status !== "archived" || state.view === "archived" : fn(c)) &&
+    (!q || `${c.name} ${c.id} ${c.tox_name || ""} ${c.notes}`.toLowerCase().includes(q)));
+  nav.classList.toggle("compact", list.length > 25);
+  // Long lists get sections; a handful of contacts reads best as one list.
+  const grouped = state.view === "all" && !q && list.length > 8;
+  if (!grouped) list.forEach(c => nav.append(contactRow(c)));
+  else {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const t0 = today.getTime() / 1000;
+    const sections = [["Needs you", c => needs(c).any], ["Today", c => (c.last?.created_at || 0) >= t0], ["Earlier", () => true]];
+    const placed = new Set();
+    for (const [title, test] of sections) {
+      const rows = list.filter(c => !placed.has(c.id) && test(c));
+      if (!rows.length) continue;
+      const h = document.createElement("div");
+      h.className = "group-head";
+      h.textContent = `${title} · ${rows.length}`;
+      nav.append(h);
+      rows.forEach(c => { placed.add(c.id); nav.append(contactRow(c)); });
+    }
   }
-  if (!nav.children.length) nav.innerHTML = `<p class="hint" style="padding:12px">${state.snap.contacts.length ? "No matches." : "No guests yet. Click + Guest."}</p>`;
+  if (!nav.children.length) nav.innerHTML = `<p class="hint" style="padding:12px">${state.snap.contacts.length ? "No matches." : "No contacts yet. Click + Guest."}</p>`;
 }
+
+// ----------------------------------------------------------------- overview
+function renderOverview() {
+  const s = state.snap, cs = s.contacts.filter(c => c.status !== "archived");
+  const hour = new Date().getHours();
+  $("#ov-title").textContent = `${hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"}${s.owner && s.owner !== "the owner" ? ", " + s.owner : ""}`;
+  $("#ov-sub").textContent = `${s.self.name || "Your agent"} is ${s.self.connection === "none" ? "joining the Tox network…" : s.self.connection === "disabled" ? "running without Tox" : "online on Tox"}.`;
+  const activeToday = cs.filter(c => c.today > 0).length;
+  const msgsToday = cs.reduce((n, c) => n + (c.today || 0), 0);
+  const onPublic = cs.filter(isPublic).length;
+  const tiles = [["Contacts", cs.length], ["Active today", activeToday], ["Messages today", msgsToday], ["On the public agent", onPublic]];
+  $("#ov-tiles").innerHTML = tiles.map(([k, v]) => `<div class="tile"><b>${v}</b><span>${k}</span></div>`).join("");
+
+  // Needs you: everything waiting on the owner, newest first.
+  const items = [];
+  for (const r of s.owner_requests || []) items.push({ at: r.at, html: `<b>${esc(r.name || "Someone")}</b> <span class="hint">asks for you · ${ago(r.at)}</span><div>${esc(r.body)}</div>`,
+    actions: [r.contact_id && ["Open chat", () => (location.hash = r.contact_id)], ["Done", () => api("POST", `/api/owner_requests/${r.id}/done`).then(refresh), "primary"]] });
+  for (const c of cs) {
+    if (c.held) items.push({ at: c.last?.created_at || 0, html: `<b>${esc(c.name)}</b> <span class="hint">${c.held} repl${c.held > 1 ? "ies" : "y"} held for you</span>`, actions: [["Review", () => (location.hash = c.id), "primary"]] });
+    if (c.stuck) items.push({ at: c.last?.created_at || 0, html: `<b>${esc(c.name)}</b> <span class="hint">${c.stuck} message${c.stuck > 1 ? "s" : ""} stuck (not delivered)</span>`, actions: [["Open", () => (location.hash = c.id)]] });
+  }
+  for (const r of s.requests) items.push({ at: r.at, html: `<b>${r.returning ? esc(r.returning) + " is back" : r.agent ? "Friend request from an agent" : "Friend request"}</b> <span class="hint">${ago(r.at)}</span><div>${esc(r.greeting || "(no message)")}</div>`,
+    actions: [[r.returning ? "Restore" : "Set up", () => openNew(r.returning
+      ? { tox_id: r.public_key, fromRequest: true, returning: r.returning, name: r.returning, thread: r.thread_id || "", role: r.role || "person" }
+      : { tox_id: r.public_key, fromRequest: true, role: r.agent ? "agent" : "person", notes: r.greeting ? `Their request said: ${r.greeting}` : "" }), "primary"],
+      ["Dismiss", () => api("POST", `/api/requests/${r.public_key}/dismiss`).then(refresh)]] });
+  items.sort((a, b) => b.at - a.at);
+  const box = $("#ov-needs-list");
+  box.innerHTML = items.length ? "" : `<p class="hint all-clear">Nothing needs you right now.</p>`;
+  for (const it of items) {
+    const d = document.createElement("div");
+    d.className = "need";
+    d.innerHTML = `<div class="need-body">${it.html}</div><div class="row"></div>`;
+    for (const a of it.actions.filter(Boolean)) {
+      const b = document.createElement("button");
+      b.textContent = a[0]; b.className = a[2] || "ghost"; b.onclick = a[1];
+      d.querySelector(".row").append(b);
+    }
+    box.append(d);
+  }
+
+  // Public agent card.
+  const L = s.learned || {};
+  const pubBody = $("#ov-public-body");
+  if (!s.public_thread) {
+    pubBody.innerHTML = `<p class="hint">One shared agent that answers everyone you haven't set up individually, and gets smarter from every chat. Choose <b>The public agent</b> when adding a contact, or let strangers' requests go straight to it in ⚙ Settings.</p>`;
+  } else {
+    const pubActive = cs.filter(c => isPublic(c) && c.today > 0).length;
+    pubBody.innerHTML = `<div class="facts2"><span>${onPublic}</span> guests · <span>${pubActive}</span> active today · <span>${L.entries || 0}</span> learned answers${L.updated ? ` (updated ${ago(L.updated)})` : ""}</div>
+      <div class="row"><button class="ghost" id="ov-learned">Open learned answers</button><button class="ghost" id="ov-pubthread">Open its thread ↗</button></div>`;
+    $("#ov-learned").onclick = () => api("POST", "/api/learned/open").then(r => toast(r.note)).catch(e => toast(e.message));
+    $("#ov-pubthread").onclick = () => { const c = cs.find(isPublic); if (c) api("POST", `/api/contacts/${c.id}/open`).then(r => toast(r.note || "Opening…")); };
+  }
+
+  // Recently active.
+  const recent = cs.filter(c => c.last).sort((a, b) => b.last.created_at - a.last.created_at).slice(0, 8);
+  const rl = $("#ov-recent-list");
+  rl.innerHTML = recent.length ? "" : `<p class="hint">No conversations yet. Click <b>+ Guest</b>, or share your Tox ID.</p>`;
+  recent.forEach(c => rl.append(contactRow(c)));
+}
+$("#ov-new").onclick = () => openNew();
+$("#ov-copy").onclick = () => { const id = state.snap?.self.tox_id; if (id) navigator.clipboard.writeText(id).then(() => toast("Tox ID copied")); };
 
 // --------------------------------------------------------------------- chat
 function contact() { return state.snap?.contacts.find(c => c.id === state.current); }
@@ -110,9 +213,11 @@ function renderHead() {
   $("#chat-avatar").style.background = color(c.id);
   $("#chat-avatar").textContent = initials(c.name);
   $("#chat-name").textContent = c.name;
-  $("#chat-kind").textContent = [c.kind === "test" ? "test" : (c.tox_name && c.tox_name !== c.name ? `Tox: ${c.tox_name}` : ""), ROLE_NOTE[c.role] || ""].filter(Boolean).join(" · ");
+  $("#chat-kind").textContent = [c.kind === "test" ? "test" : (c.tox_name && c.tox_name !== c.name ? `Tox: ${c.tox_name}` : ""), ROLE_NOTE[c.role] || "",
+    c.thread_id && c.thread_id === state.snap.public_thread ? "answered by the public agent" : (state.snap.tiers && c.tier === "deep" ? "deep tier" : "")].filter(Boolean).join(" · ");
   $("#chat-dot").className = "dot " + (c.kind === "test" ? "udp" : c.online);
-  const mates = state.snap.contacts.filter(o => o.id !== c.id && o.thread_id && o.thread_id === c.thread_id && o.status !== "archived").map(o => o.name);
+  // On the shared public agent everyone shares the thread; that's not worth listing.
+  const mates = isPublic(c) ? [] : state.snap.contacts.filter(o => o.id !== c.id && o.thread_id && o.thread_id === c.thread_id && o.status !== "archived").map(o => o.name);
   $("#chat-status").textContent = onlineText(c) + (c.status === "paused" ? " · bridge paused" : "") + (c.status === "archived" ? " · archived" : "") + (mates.length ? ` · shares a thread with ${mates.join(", ")}` : "");
   const hold = $("#btn-hold");
   hold.classList.toggle("on", !!c.hold_outgoing);
@@ -126,6 +231,7 @@ function renderHead() {
   if (c.status === "paused") msgs.push("Bridge paused: their messages are kept but not delivered to the agent, and the agent's replies are held. Resume from ⋯.");
   if (c.hold_outgoing) msgs.push(`Outgoing on hold. The agent's replies wait here for you${held ? ` (${held} waiting)` : ""}.`);
   if (c.status === "archived") msgs.push("Archived: they're no longer a Tox friend and nothing reaches the agent. Unarchive from ⋯.");
+  for (const r of (state.snap.owner_requests || []).filter(r => r.contact_id === c.id)) msgs.push(`Your agent flagged this for you: ${r.body}  (Mark it done from the overview once handled.)`);
   if (c.budget && c.budget.used >= c.budget.limit) msgs.push(`Agent conversation paused: your agent has sent its ${c.budget.limit} messages. Its next replies are held here; Send now on one to allow ${c.budget.limit} more.`);
   if (state.offline) msgs.unshift("Toxline service is offline. Reconnecting…");
   banner.innerHTML = msgs.map(esc).join("<br>");
@@ -230,6 +336,9 @@ function select(id) {
     renderHead();
     loadChat(id).then(() => api("POST", `/api/contacts/${id}/seen`).catch(() => {}));
     try { localStorage.setItem("toxline.current", id); } catch (e) {}
+  } else if (state.snap) {
+    renderOverview();
+    try { localStorage.removeItem("toxline.current"); } catch (e) {}
   }
   renderContacts();
 }
@@ -265,7 +374,8 @@ $("#log").addEventListener("click", async e => {
 let refreshTimer = null;
 async function refresh() {
   state.snap = await api("GET", "/api/state");
-  renderMe(); renderRequests(); renderContacts();
+  renderMe(); renderChips(); renderContacts();
+  if (!state.current) renderOverview();
   if (state.current) renderHead();
 }
 function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 120); }
@@ -306,7 +416,6 @@ $("#me-id").onclick = () => {
   if (id) navigator.clipboard.writeText(id).then(() => toast("Agent Tox ID copied"));
 };
 $("#filter").oninput = e => { state.filter = e.target.value; renderContacts(); };
-$("#show-archived").onchange = e => { state.showArchived = e.target.checked; renderContacts(); };
 $("#btn-back").onclick = () => { location.hash = ""; };
 $("#overlay").onchange = e => $("#log").classList.toggle("overlay-on", e.target.checked);
 $("#log").classList.add("overlay-on");
@@ -333,13 +442,15 @@ $("#sim-send").onclick = async () => {
 
 async function fillThreads(select, current) {
   // New guests default to a fresh thread seeded with the current brief.
-  select.innerHTML = current ? "" : `<option value="new" selected>＋ Create a new thread for them (seeded with the current brief)</option>`;
+  select.innerHTML = (current ? "" : `<option value="new" selected>＋ Create a new thread for them (seeded with the current brief)</option>`)
+    + (current === state.snap.public_thread && current ? "" : `<option value="public">★ The public agent (one shared thread that learns from every chat)</option>`);
   try {
     const { threads } = await api("GET", "/api/threads");
     const bound = new Map();
     for (const c of state.snap.contacts.filter(c => c.thread_id && c.status !== "archived"))
       bound.set(c.thread_id, [...(bound.get(c.thread_id) || []), c.name]);
     for (const t of threads) {
+      if (t.id === state.snap.public_thread) continue;
       const o = document.createElement("option");
       o.value = t.id;
       const owners = (bound.get(t.id) || []).filter(n => !(t.id === current && n === contact()?.name));
@@ -350,7 +461,8 @@ async function fillThreads(select, current) {
   if (current) { const n = document.createElement("option"); n.value = "new"; n.textContent = "＋ Create a new thread for them"; select.append(n); }
   if (current) {
     if (![...select.options].some(o => o.value === current)) {
-      const o = document.createElement("option"); o.value = current; o.textContent = current; select.append(o);
+      const o = document.createElement("option"); o.value = current;
+      o.textContent = current === state.snap.public_thread ? "★ The public agent (shared)" : current; select.append(o);
     }
     select.value = current;
   }
@@ -424,6 +536,7 @@ $("#btn-more").onclick = async () => {
   ].map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
   f.elements.notes.value = c.notes || "";
   f.elements.role.value = c.role || "person";
+  f.elements.tier.value = c.tier || "story";
   $("#btn-pause").textContent = c.status === "paused" ? "Resume" : "Pause";
   $("#btn-archive").textContent = c.status === "archived" ? "Unarchive" : "Archive";
   $("#btn-delete").hidden = c.status !== "archived";
@@ -454,6 +567,14 @@ $("#form-more").addEventListener("submit", async e => {
   const c = contact(), f = e.target;
   try {
     await api("POST", `/api/contacts/${c.id}/update`, { notes: f.elements.notes.value, role: f.elements.role.value });
+    if (f.elements.tier.value !== (c.tier || "story")) {
+      const up = f.elements.tier.value === "deep";
+      if (await ask(up ? `Move ${c.name} to the deep tier?` : `Move ${c.name} back to the public agent?`,
+                    up ? "They get their own thread with the full material, seeded with a summary of the chat so far." : "Their future messages go to the shared public agent.", "Move")) {
+        await api("POST", `/api/contacts/${c.id}/tier`, { tier: f.elements.tier.value });
+        $("#dlg-more").close(); refresh(); return;
+      }
+    }
     const t = f.elements.thread.value;
     if (t !== (c.thread_id || "new") || (t === "new" && c.thread_id)) {
       if (await ask(t === "new" ? "Start a fresh thread for this guest?" : "Move this guest to the selected thread?",
@@ -464,7 +585,7 @@ $("#form-more").addEventListener("submit", async e => {
   } catch (err) { $("#more-error").textContent = err.message; }
 });
 
-const SETTINGS = ["owner", "topic", "guide_name", "status_message", "library_map", "read_first", "greeting", "agent_greeting", "agent_budget"];
+const SETTINGS = ["owner", "topic", "guide_name", "status_message", "library_map", "read_first", "deep_library_map", "deep_read_first", "learned_file", "auto_accept", "greeting", "agent_greeting", "agent_budget"];
 $("#btn-settings").onclick = async () => {
   const f = $("#form-settings"), me = state.snap.self;
   $("#settings-facts").innerHTML = [["Agent Tox ID", me.tox_id || "Tox disabled"], ["Tox network", me.connection], ["Delivery", state.snap.ingress]]
@@ -520,7 +641,7 @@ $("#form-welcome").addEventListener("submit", async e => {
   if (start && state.snap.contacts.some(c => c.id === start)) location.hash === "#" + start ? select(start) : (location.hash = start);
   welcome().catch(() => {});
 })();
-setInterval(() => { if (state.snap) renderContacts(); }, 30000);
+setInterval(() => { if (state.snap) { renderContacts(); if (!state.current) renderOverview(); } }, 30000);
 
 // Confirm dialog that works everywhere (window.confirm is blocked in some embedded browsers).
 function ask(title, text, ok = "OK") {

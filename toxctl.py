@@ -20,6 +20,9 @@ The viewer's everyday controls, as commands. Contacts can be named by id or by n
   python toxctl.py role NAME person|agent|consult    who's on the other end
   python toxctl.py rename NAME "New name"
   python toxctl.py redeliver MSG              retry delivering an incoming message to the agent
+  python toxctl.py tier NAME story|deep       story: the shared public agent; deep: own thread, full material
+  python toxctl.py asks                       what agents have flagged for you (access, depth, calls)
+  python toxctl.py done ASK                   mark one handled
   python toxctl.py dismiss REQUEST            ignore a pending friend request
   python toxctl.py settings [key=value ...]   show or change settings
   python toxctl.py open NAME                  open the agent's thread in Codex Desktop
@@ -126,6 +129,10 @@ def cmd_status(a):
             if c["status"] == "archived" and not a.all:
                 continue
             flags = [ROLES.get(c.get("role") or "person", c.get("role")), c["status"]]
+            if c.get("thread_id") and c["thread_id"] == s.get("public_thread"):
+                flags.append("on the public agent")
+            elif c.get("tier") == "deep":
+                flags.append("deep tier")
             if c["online"] != "none":
                 flags.append("online")
             elif not c.get("last") or not c.get("ever_online"):
@@ -141,6 +148,11 @@ def cmd_status(a):
             last = c.get("last")
             lastt = f"last: {'agent' if last['direction'] == 'out' else 'them'}, {ago(last['created_at'])}" if last else "no messages"
             print(f"  - {c['name']} [{c['id']}]: {', '.join(flags)}; {lastt}")
+        asks = s.get("owner_requests") or []
+        if asks:
+            print(f"Flagged for you ({len(asks)}; see `toxctl asks`):")
+            for r in asks[-5:]:
+                print(f"  - [{r['id']}] {r.get('name') or 'someone'}: {r['body'][:140]}")
         if s["requests"]:
             print("Pending friend requests (set up with: toxctl accept KEY --name NAME):")
             for r in s["requests"]:
@@ -289,7 +301,8 @@ def cmd_add(a):
     if a.role != "person" and not a.tox_id and not a.test:
         sys.exit("toxctl: an agent contact needs --tox-id (the Tox ID at the top-left of their Toxline)")
     body = {"name": a.name, "role": a.role, "tox_id": a.tox_id or "", "kind": "test" if a.test else "tox",
-            "thread": a.thread, "notes": "\n\n".join(x for x in (a.mission, a.notes) if x), "greeting": a.greeting or ""}
+            "thread": "public" if a.public else a.thread, "notes": "\n\n".join(x for x in (a.mission, a.notes) if x),
+            "greeting": a.greeting or ""}
     if a.test:
         body.pop("tox_id")
     c = call("POST", "/api/contacts", body, timeout=200)
@@ -306,7 +319,7 @@ def cmd_accept(a):
     r = hits[0]
     role = a.role or (r.get("role") or ("agent" if r.get("agent") else "person"))
     c = call("POST", "/api/contacts", {"name": a.name or r.get("returning") or "Guest", "tox_id": r["public_key"],
-                                       "role": role, "thread": a.thread or r.get("thread_id") or "new",
+                                       "role": role, "thread": "public" if a.public else (a.thread or r.get("thread_id") or "new"),
                                        "notes": a.notes or ""}, timeout=200)
     out(c, a, lambda c: print(f"Set up {c['name']} [{c['id']}] as {ROLES[c['role']]}; agent thread {c['thread_id']}."))
 
@@ -379,6 +392,30 @@ def cmd_dismiss(a):
     print("Dismissed.")
 
 
+def cmd_tier(a):
+    c = find(state(), a.name)
+    r = call("POST", f"/api/contacts/{c['id']}/tier", {"tier": a.tier}, timeout=200)
+    moved = r["thread_id"] != c["thread_id"]
+    print(f"{r['name']} is now on the {a.tier} tier (thread {r['thread_id']})."
+          + (" Their new thread got a handoff of the chat so far." if a.tier == "deep" and moved else ""))
+
+
+def cmd_asks(a):
+    asks = state().get("owner_requests") or []
+
+    def show(asks):
+        if not asks:
+            print("Nothing flagged for you.")
+        for r in asks:
+            print(f"\n[{r['id']}] {ago(r['at'])}, about {r.get('name') or 'no specific contact'}:\n{r['body']}")
+    out(asks, a, show)
+
+
+def cmd_done(a):
+    r = call("POST", f"/api/owner_requests/{a.ask}/done")
+    print(f"[{r['id']}] marked handled.")
+
+
 def cmd_open(a):
     c = find(state(), a.name)
     print(call("POST", f"/api/contacts/{c['id']}/open").get("note", "opened"))
@@ -418,10 +455,12 @@ def main(argv=None):
     sp.add_argument("--thread", default="new", help="'new' (default) or an existing Codex thread id to bind")
     sp.add_argument("--greeting", help="friend-request message (default from settings)")
     sp.add_argument("--test", action="store_true", help="a simulated contact you type as, from the viewer")
+    sp.add_argument("--public", action="store_true", help="answer them with the shared public agent (story tier)")
     sp = p("accept", cmd_accept, "set up a pending friend request")
     sp.add_argument("request", help="the start of the request's key, from `status`")
     sp.add_argument("--name"); sp.add_argument("--role", choices=list(ROLES)); sp.add_argument("--notes")
     sp.add_argument("--thread", help="default: a new thread (a returning contact keeps theirs)")
+    sp.add_argument("--public", action="store_true", help="answer them with the shared public agent (story tier)")
     sp = p("held", cmd_held, "messages waiting for you"); sp.add_argument("name", nargs="?")
     sp = p("release", cmd_release, "send a held message"); sp.add_argument("msg"); sp.add_argument("--file", help="send this text instead")
     sp = p("discard", cmd_discard, "drop a held message", False); sp.add_argument("msg")
@@ -435,6 +474,10 @@ def main(argv=None):
     sp = p("rename", lambda a: update(a, name=a.new), "rename a contact", False); sp.add_argument("name"); sp.add_argument("new")
     sp = p("redeliver", cmd_redeliver, "retry delivering an incoming message", False); sp.add_argument("msg")
     sp = p("dismiss", cmd_dismiss, "ignore a pending friend request", False); sp.add_argument("request")
+    sp = p("tier", cmd_tier, "move a contact between the public agent and the deep tier", False)
+    sp.add_argument("name"); sp.add_argument("tier", choices=["story", "deep"])
+    p("asks", cmd_asks, "what agents flagged for you")
+    sp = p("done", cmd_done, "mark a flagged request handled", False); sp.add_argument("ask")
     sp = p("settings", cmd_settings, "show or change settings"); sp.add_argument("pairs", nargs="*", metavar="key=value")
     sp = p("open", cmd_open, "open the agent thread in Codex Desktop", False); sp.add_argument("name")
     a = ap.parse_args(argv)

@@ -12,7 +12,7 @@
   <aside id="sidebar">
     <header class="me">
       <div class="me-top">
-        <div class="brand"><span class="logo">T</span> Toxline</div>
+        <a class="brand" href="#" title="Overview"><span class="logo">T</span> Toxline</a>
         <button class="icon" id="btn-settings" title="Settings">⚙</button>
       </div>
       <div class="me-id" id="me-id" title="Click to copy the agent's Tox ID">
@@ -22,21 +22,27 @@
       </div>
     </header>
     <div class="side-actions">
-      <input id="filter" placeholder="Search guests" autocomplete="off">
+      <input id="filter" placeholder="Search contacts" autocomplete="off">
       <button id="btn-new" class="primary">+ Guest</button>
     </div>
     <div id="desk-warn" class="request" hidden><b>Codex Desktop isn't open.</b> <div>Messages still reach your agents through Codex in the background, but open Codex Desktop to watch and steer their threads live.</div></div>
     <div id="tox-warn" class="request" hidden><b>Not on the Tox network yet.</b> <div>This usually takes under a minute. If it stays like this, check your internet connection or firewall (allow Python).</div></div>
-    <div id="requests"></div>
+    <div id="chips" class="chips" hidden></div>
     <nav id="contacts"></nav>
-    <label class="archived-toggle"><input type="checkbox" id="show-archived"> Show archived</label>
   </aside>
 
   <main id="main">
-    <div id="empty" class="empty">
-      <h1>The guest's view</h1>
-      <p>Pick a guest on the left to see their chat exactly as it appears in their Tox client, live and in full history.</p>
-      <p>Use <b>+ Guest</b> to invite someone new. Each guest gets their own agent thread.</p>
+    <div id="empty" class="overview">
+      <header class="ov-head">
+        <div><h1 id="ov-title">Overview</h1><p class="hint" id="ov-sub"></p></div>
+        <div class="row"><button id="ov-copy" class="ghost">Copy my Tox ID</button><button id="ov-new" class="primary">+ Guest</button></div>
+      </header>
+      <div class="tiles" id="ov-tiles"></div>
+      <section class="card" id="ov-needs"><h2>Needs you</h2><div id="ov-needs-list"></div></section>
+      <div class="cols">
+        <section class="card" id="ov-public"><h2>Public agent</h2><div id="ov-public-body"></div></section>
+        <section class="card" id="ov-recent"><h2>Recently active</h2><div id="ov-recent-list"></div></section>
+      </div>
     </div>
     <section id="chat" hidden>
       <header class="chat-head">
@@ -103,6 +109,9 @@
   <form method="dialog" id="form-more">
     <h2 id="more-title">Guest</h2>
     <dl class="facts" id="more-facts"></dl>
+    <label>Tier
+      <select name="tier"><option value="story">Story: the shared public agent and the public material</option><option value="deep">Deep: their own thread with the full material</option></select>
+    </label>
     <label>Who's on the other end
       <select name="role"><option value="person">A person</option><option value="agent">Someone's agent (asks, yours answers)</option><option value="consult">An agent your agent questions</option></select>
     </label>
@@ -134,6 +143,16 @@
     <div class="grid2">
       <label>What your agent answers from: a folder or a map file (optional)<input name="library_map" spellcheck="false" placeholder="e.g. C:/Users/you/Documents/my-project"></label>
       <label>Files to read before the first reply (optional; separate with ;)<input name="read_first" spellcheck="false"></label>
+    </div>
+    <div class="grid2">
+      <label>Deep tier: what your agent answers from (empty = same as above)<input name="deep_library_map" spellcheck="false"></label>
+      <label>Deep tier: files to read first (; separated)<input name="deep_read_first" spellcheck="false"></label>
+    </div>
+    <div class="grid2">
+      <label>Public agent's learned-answers file (empty = default)<input name="learned_file" spellcheck="false"></label>
+      <label>Strangers' friend requests
+        <select name="auto_accept"><option value="off">Wait for me to set them up</option><option value="on">Go straight to the public agent</option></select>
+      </label>
     </div>
     <label>Friend-request greeting ({name} = the guest)<input name="greeting" maxlength="900"></label>
     <div class="grid2">

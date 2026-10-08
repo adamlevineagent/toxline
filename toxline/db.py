@@ -87,6 +87,12 @@ class Journal:
                 # Who is on the other end: person (a human guest), agent (someone's agent asking
                 # ours), consult (an agent ours questions on the owner's behalf).
                 c.execute("alter table contacts add column role text not null default 'person'")
+            cols = {r[1] for r in c.execute("pragma table_info(contacts)")}
+            if "tier" not in cols:
+                # story: the curated material (new contacts); deep: the full archive. Contacts that
+                # existed before tiers keep the access they had, which was the single (deep) library.
+                c.execute("alter table contacts add column tier text not null default 'story'")
+                c.execute("update contacts set tier='deep'")
             cols = {r[1] for r in c.execute("pragma table_info(messages)")}
             if "origin" not in cols:
                 # Who wrote an outbound message: agent (tox-send) or owner (viewer/API).
@@ -160,12 +166,12 @@ class Journal:
         r = self._conn().execute("select * from contacts where thread_id=?", (thread_id,)).fetchone()
         return dict(r) if r else None
 
-    def add_contact(self, cid, name, public_key, tox_id=None, notes="", kind="tox", role="person"):
+    def add_contact(self, cid, name, public_key, tox_id=None, notes="", kind="tox", role="person", tier="story"):
         now = time.time()
         with self._lock:
             self._conn().execute(
-                "insert into contacts(id,name,public_key,tox_id,kind,notes,role,created_at,updated_at) values (?,?,?,?,?,?,?,?,?)",
-                (cid, name, public_key.upper(), tox_id.upper() if tox_id else None, kind, notes, role, now, now))
+                "insert into contacts(id,name,public_key,tox_id,kind,notes,role,tier,created_at,updated_at) values (?,?,?,?,?,?,?,?,?,?)",
+                (cid, name, public_key.upper(), tox_id.upper() if tox_id else None, kind, notes, role, tier, now, now))
         self.event("contact_added", cid, name=name)
         return self.contact(cid)
 
@@ -221,6 +227,18 @@ class Journal:
             "order by coalesce(shown_at, created_at) desc limit ?) order by coalesce(shown_at, created_at)",
             (contact_id, limit))
         return [_msg(r) for r in rows]
+
+    def contact_stats(self, since):
+        """One pass over the journal for the overview: per contact, what's waiting on the owner,
+        today's activity, and whether they've ever been reachable."""
+        rows = self._conn().execute(
+            "select contact_id,"
+            " sum(direction='out' and state='held') held,"
+            " sum((direction='out' and state='failed') or (direction='in' and state='delivery_failed')) stuck,"
+            " sum(created_at > ?) today,"
+            " sum(direction='in') + sum(state='delivered') reached"
+            " from messages group by contact_id", (since,))
+        return {r["contact_id"]: dict(r) for r in rows}
 
     def count_out_since(self, contact_id, since):
         """The agent's messages to a contact since a time that went out or are on their way."""

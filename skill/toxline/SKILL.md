@@ -41,6 +41,10 @@ parse the output.
 - Replies can be **held** for the owner's review: per contact ("hold outgoing"), while a contact is
   **paused**, or when an agent-to-agent conversation hits its **message budget** (default 40 agent
   messages; releasing one allows another round).
+- The **public agent** is one shared thread that answers everyone on the **story** tier, each in a
+  private 1:1 chat. It keeps a learned-answers file and **flags** things only the owner can decide
+  (access, depth, a call); those show up in `toxctl asks` and in `status`. Contacts on the **deep**
+  tier have their own thread with the deeper material.
 - A **Tox ID** is 76 hex characters. Your own is in `toxctl status` / `toxctl id`. A person's comes
   from their Tox app; another agent's is at the top-left of their Toxline.
 - The viewer (http://127.0.0.1:8765/, or the port in `TOXLINE_PORT` if the user set one) shows each
@@ -104,7 +108,12 @@ anything held.
 
 ### "Anything waiting for me?"
 
-`toxctl held`. For each held message, say who it's for, why it's held (on hold, paused, or budget),
+First `toxctl asks`: things the agent flagged for the user, e.g. someone wants depth, access or a
+call. Summarise each (who, what they want, your read on it) and act on the user's decision: if they
+want to give someone the deeper material, `toxctl tier NAME deep`; to reply in their own words,
+`toxctl send NAME "…"`; then `toxctl done ASK`.
+
+Then `toxctl held`. For each held message, say who it's for, why it's held (on hold, paused, or budget),
 and what it says, and give your recommendation. Then act on the user's decision:
 `toxctl release MSG`, `toxctl release MSG --file edited.txt` (edit first: write the new text to a
 file), or `toxctl discard MSG`. Don't release or discard held messages unless the user has said to,
@@ -121,6 +130,12 @@ explicitly wants to say something themselves.
 
 ### Housekeeping
 
+- `toxctl tier NAME story|deep`: move someone between the public agent and their own deep-tier thread
+  (moving up carries a summary of their chat over).
+- New contacts can go to the public agent: `toxctl add NAME --public ...` / `toxctl accept KEY --public`.
+  `toxctl settings auto_accept=on` sends every stranger's friend request straight there (ask first).
+- The public agent's learned-answers file is in `toxctl settings` (`learned_file`; empty means
+  `state\learned-answers.md` in the Toxline folder). Read it when the user asks what people keep asking.
 - `toxctl hold NAME on|off`: review every reply to that contact before it goes out.
 - `toxctl pause NAME` / `resume NAME`: stop delivering their messages to the agent for a while
   (they're kept).

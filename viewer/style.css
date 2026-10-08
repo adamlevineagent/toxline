@@ -205,3 +205,43 @@ dialog details summary { cursor: pointer; }
 .roles legend { padding: 0 4px; color: var(--muted); font-size: 12.5px; }
 .roles label { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; color: var(--text); }
 .roles .hint { font-size: 12px; }
+
+/* ---------------------------------------------------------------- scale: filters, groups, overview */
+.brand { color: inherit; text-decoration: none; }
+.me-id code { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: normal; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 8px; }
+.chips[hidden] { display: none; }
+.chip { border-radius: 999px; padding: 3px 10px; font-size: 12px; display: flex; gap: 6px; align-items: center; background: transparent; color: var(--muted); }
+.chip span { font-variant-numeric: tabular-nums; opacity: .8; }
+.chip.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+.chip.attn:not(.on) { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.group-head { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 12px 10px 4px; }
+.attn-text { color: var(--warn); font-weight: 600; }
+#contacts.compact .contact { grid-template-columns: 30px 1fr auto; padding: 5px 8px; gap: 8px; }
+#contacts.compact .avatar { width: 30px; height: 30px; font-size: 11.5px; }
+#contacts.compact .avatar .dot { width: 9px; height: 9px; }
+#contacts.compact .preview { font-size: 12px; }
+#contacts.compact .badge { display: none; }
+#sidebar > .request { margin: 0 12px 8px; }
+#sidebar > .request[hidden] { display: none; }
+
+.overview { overflow-y: auto; padding: 28px clamp(16px, 4vw, 48px) 40px; display: grid; gap: 18px; align-content: start; max-width: 1100px; width: 100%; margin: 0 auto; }
+.overview[hidden] { display: none; }
+.ov-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.ov-head h1 { margin: 0; font-size: 24px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: grid; gap: 2px; }
+.tile b { font-size: 26px; font-variant-numeric: tabular-nums; }
+.tile span { color: var(--muted); font-size: 12.5px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 10px; align-content: start; }
+.card h2 { margin: 0; font-size: 14px; letter-spacing: .02em; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.need { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.need:first-child { border-top: none; padding-top: 0; }
+.need-body { min-width: 0; overflow-wrap: anywhere; }
+.need-body div { color: var(--text); font-size: 13px; margin-top: 2px; }
+.need .row { flex: none; }
+.all-clear::before { content: "✓ "; color: var(--accent); font-weight: 700; }
+.facts2 { color: var(--muted); }
+.facts2 span { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+#ov-recent-list .contact { padding: 6px 4px; }
