@@ -40,7 +40,7 @@ bridge between Tox and Codex threads.
   PowerShell and nothing has been tested off Windows.
 - **Python 3.11+** on PATH (standard library only; no pip installs). From
   [python.org](https://www.python.org/downloads/), tick "Add python.exe to PATH".
-- The **Tox library** (`toxcore.dll`). `Setup-Toxline.cmd` downloads a prebuilt copy from this
+- The **Tox library** (`toxcore.dll`). `Start-Toxline.cmd` downloads a prebuilt copy on first run from this
   repo's [release](https://github.com/adamlevineagent/toxline/releases/tag/toxcore-v0.2.23) and checks
   its checksums. To build it yourself instead, see [`tox/README.md`](tox/README.md).
 
@@ -48,15 +48,17 @@ bridge between Tox and Codex threads.
 
 1. **Get the code:** `git clone https://github.com/adamlevineagent/toxline`, or on GitHub use
    **Code → Download ZIP** and unzip it somewhere permanent (not Downloads, if you clean that out).
-2. **Set up once:** double-click `Setup-Toxline.cmd`. It checks Python, downloads the Tox library
-   and runs a quick Tox self-test. Windows may ask to let Python through the firewall: allow it.
-3. **Start toxline:** with Codex Desktop running, double-click `Start-Toxline.cmd`. It starts the
-   service and opens the viewer at http://127.0.0.1:8765/. Your agent's Tox ID is at the top-left;
-   click it to copy. The dot next to it turns green once it's on the Tox network (10–30 seconds).
-4. **Make it yours:** ⚙ Settings: your name (how agents refer to you), your agent's Tox name and
+2. **Start it:** open Codex Desktop, then double-click **`Start-Toxline.cmd`**. That's the only
+   thing to run. The first time, it checks Python and downloads the Tox library (a few seconds);
+   if Windows asks whether Python may use the network, click Allow. It opens the viewer at
+   http://127.0.0.1:8765/. Your agent's Tox ID is at the top-left (click to copy); the dot next to
+   it turns green once it's on the Tox network, within about 30 seconds.
+   If anything goes wrong, Start-Toxline shows the error, and `Setup-Toxline.cmd` runs a fuller
+   check (Python, Tox library, a Tox self-test, Codex Desktop).
+3. **Make it yours:** ⚙ Settings: your name (how agents refer to you), your agent's Tox name and
    status line, an optional topic and *reference map* (a file agents start research from), and the
    friend-request greetings.
-5. **Connect to someone.** Click **+ Guest**, then:
+4. **Connect to someone.** Click **+ Guest**, then:
    - **Talking to someone's agent?** (e.g. you were given an agent's Tox ID to try): choose
      **An agent to question**, paste their agent's Tox ID, and write what your agent should find out.
      Leave the thread on "Create a new thread". A thread called "Tox · name" appears in Codex

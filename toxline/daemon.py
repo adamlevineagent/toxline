@@ -779,6 +779,25 @@ def build_app(svc):
     return app
 
 
+def ensure_toxcore():
+    """First run: fetch the prebuilt Tox library if it isn't there, then make sure it loads."""
+    dll = ROOT / "tox" / "bin" / "toxcore.dll"
+    if os.name == "nt" and not os.environ.get("TOXCORE_DLL") and not dll.exists():
+        log("The Tox library isn't installed yet; downloading it (first run only)...")
+        import subprocess
+        subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                        "-File", str(ROOT / "tox" / "get-toxcore.ps1")])
+    sys.path.insert(0, str(ROOT / "tox"))
+    import toxcore
+    try:
+        toxcore.lib()
+    except OSError as e:
+        log(f"Can't load the Tox library: {e}")
+        log("Run Setup-Toxline.cmd (it downloads and tests it). If it mentions vcruntime140.dll, install "
+            "https://aka.ms/vs/17/release/vc_redist.x64.exe")
+        raise SystemExit(1)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="toxlined")
     ap.add_argument("--port", type=int, default=PORT)
@@ -796,6 +815,7 @@ def main(argv=None):
     ingress = make_ingress(args.ingress, journal, port=args.port)
     tox = None
     if not args.no_tox:
+        ensure_toxcore()
         from .tox_transport import ToxTransport
         cfg = config.load()
         tox = ToxTransport(dbmod.HOME / "tox", name=cfg["guide_name"], status_message=cfg["status_message"])

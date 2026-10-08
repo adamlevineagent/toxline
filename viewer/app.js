@@ -48,6 +48,14 @@ function renderMe() {
   $("#me-name").textContent = me.name || "Tox disabled";
   $("#me-tox").textContent = me.tox_id || "Running with test guests only";
   $("#me-dot").className = "dot " + (me.connection || "none");
+  $("#desk-warn").hidden = !/not found/i.test(state.snap.ingress || "");
+  // Joining the Tox network normally takes 10-30 s; only worry the owner after a minute.
+  if (me.connection === "none") {
+    state.offSince = state.offSince || Date.now();
+    clearTimeout(renderMe.t);
+    renderMe.t = setTimeout(renderMe, Math.max(0, 60000 - (Date.now() - state.offSince)) + 50);
+  } else state.offSince = null;
+  $("#tox-warn").hidden = !(state.offSince && Date.now() - state.offSince >= 60000);
   $("#me-id").title = me.tox_id ? `Agent Tox ID (${me.connection === "none" ? "connecting to the Tox network…" : "connected via " + me.connection.toUpperCase()}). Click to copy.` : "";
 }
 

@@ -13,7 +13,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0tox\get-toxcore.ps
 echo Testing Tox on this machine (two local nodes talk to each other, about 15 seconds)...
 python -X utf8 tox\selftest.py --no-internet > "%TEMP%\toxline-selftest.txt" 2>&1 || goto selftest
 echo Tox self-test: PASS
-tasklist /fi "imagename eq Codex.exe" 2>nul | find /i "Codex.exe" >nul && (echo Codex Desktop: running) || (echo Codex Desktop: not running. Start it before Start-Toxline.cmd.)
+powershell.exe -NoProfile -Command "if (-not ([IO.Directory]::GetFiles('\\.\pipe\') -match 'codex-browser-use-')) { exit 1 }" && (echo Codex Desktop: running) || (echo Codex Desktop: not open. Open it before Start-Toxline.cmd.)
 echo.
 echo  Setup done. Next: double-click Start-Toxline.cmd
 echo.
