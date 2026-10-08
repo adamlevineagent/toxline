@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toxline</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2322c55e'/><path d='M9 11h14v3H17.5v10h-3V14H9z' fill='white'/></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <header class="me">
+      <div class="me-top">
+        <div class="brand"><span class="logo">T</span> Toxline</div>
+        <button class="icon" id="btn-settings" title="Settings">⚙</button>
+      </div>
+      <div class="me-id" id="me-id" title="Click to copy the agent's Tox ID">
+        <span class="dot" id="me-dot"></span>
+        <span class="me-name" id="me-name">…</span>
+        <code id="me-tox">—</code>
+      </div>
+    </header>
+    <div class="side-actions">
+      <input id="filter" placeholder="Search guests" autocomplete="off">
+      <button id="btn-new" class="primary">+ Guest</button>
+    </div>
+    <div id="requests"></div>
+    <nav id="contacts"></nav>
+    <label class="archived-toggle"><input type="checkbox" id="show-archived"> Show archived</label>
+  </aside>
+
+  <main id="main">
+    <div id="empty" class="empty">
+      <h1>The guest's view</h1>
+      <p>Pick a guest on the left to see their chat exactly as it appears in their Tox client, live and in full history.</p>
+      <p>Use <b>+ Guest</b> to invite someone new. Each guest gets their own agent thread.</p>
+    </div>
+    <section id="chat" hidden>
+      <header class="chat-head">
+        <button class="icon back" id="btn-back" title="Back">←</button>
+        <div class="avatar" id="chat-avatar"></div>
+        <div class="who">
+          <div class="who-name"><span id="chat-name"></span> <span class="badge" id="chat-kind"></span></div>
+          <div class="who-sub"><span class="dot" id="chat-dot"></span><span id="chat-status"></span></div>
+        </div>
+        <div class="head-actions">
+          <label class="switch" title="Show delivery details only you can see"><input type="checkbox" id="overlay" checked><span>Owner details</span></label>
+          <button id="btn-hold" class="ghost" title="Hold everything the agent sends until you release it">Hold outgoing</button>
+          <button id="btn-open" class="ghost" title="Open this guest's agent thread in Codex">Open agent thread ↗</button>
+          <button id="btn-more" class="icon" title="More">⋯</button>
+        </div>
+      </header>
+      <div id="banner" hidden></div>
+      <div id="pane-guest" class="pane">
+        <div id="log" class="log"></div>
+        <div id="typing" hidden><span></span><span></span><span></span></div>
+        <footer id="composer">
+          <div id="sim-box" hidden>
+            <textarea id="sim-text" rows="1" placeholder="Type as the guest…"></textarea>
+            <button id="sim-send" class="primary">Send as guest</button>
+          </div>
+          <div id="watch-note" hidden>You're watching what they see. Talk to the agent in its Codex chat (Open agent thread ↗).</div>
+        </footer>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="dlg-new">
+  <form method="dialog" id="form-new">
+    <h2 id="new-title">Invite a guest</h2>
+    <p class="hint">They chat from their own Tox client; the Codex thread you pick answers them.</p>
+    <label>Name<input name="name" required placeholder="e.g. W" autocomplete="off"></label>
+    <div class="seg" role="radiogroup">
+      <label><input type="radio" name="kind" value="tox" checked> Real Tox contact</label>
+      <label><input type="radio" name="kind" value="test"> Test guest (you play them)</label>
+    </div>
+    <label class="tox-only">Their Tox ID<textarea name="tox_id" rows="2" placeholder="76 hex characters from THEIR client (qTox: click their own name/avatar at top-left → Tox ID → Copy)" spellcheck="false"></textarea></label>
+    <p class="hint tox-only not-request">Or skip this: give them the agent's Tox ID (top-left here) and their friend request appears in the sidebar with a one-click setup.</p>
+    <label class="tox-only not-request">Friend request message<input name="greeting" placeholder="Leave empty to use the greeting from Settings"></label>
+    <label class="not-returning">About them (the agent sees this)<textarea name="notes" rows="3" placeholder="Who they are, what they care about, how deep to go…"></textarea></label>
+    <label>Their Codex thread (the agent that answers them)
+      <select name="thread" required></select>
+    </label>
+    <label>…or paste a thread ID / Codex link<input name="thread_paste" placeholder="e.g. 019a1b2c-… or codex://threads/…" autocomplete="off" spellcheck="false"></label>
+    <p class="hint warn" id="share-note" hidden></p>
+    <p class="hint">Toxline posts a short note into that thread telling the agent who it's talking to and how to reply.</p>
+    <p class="error" id="new-error"></p>
+    <menu><button value="cancel" formnovalidate class="ghost">Cancel</button><button value="ok" class="primary" id="new-ok">Create</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-more">
+  <form method="dialog" id="form-more">
+    <h2 id="more-title">Guest</h2>
+    <dl class="facts" id="more-facts"></dl>
+    <label>About them (the agent sees this in new threads)<textarea name="notes" rows="3"></textarea></label>
+    <label>Bound agent thread
+      <select name="thread"></select>
+    </label>
+    <p class="hint">Changing the thread moves where their future messages go. Nothing else moves.</p>
+    <div class="row">
+      <button type="button" class="ghost" id="btn-pause">Pause</button>
+      <button type="button" class="danger ghost" id="btn-archive">Archive</button>
+      <button type="button" class="danger" id="btn-delete" hidden>Delete</button>
+    </div>
+    <p class="error" id="more-error"></p>
+    <menu><button value="cancel" formnovalidate class="ghost">Close</button><button value="ok" class="primary">Save</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-settings">
+  <form method="dialog" id="form-settings">
+    <h2>Settings</h2>
+    <dl class="facts" id="settings-facts"></dl>
+    <div class="grid2">
+      <label>Your name (how agents refer to you)<input name="owner" maxlength="80"></label>
+      <label>Topic guests come to learn (optional)<input name="topic" maxlength="120"></label>
+      <label>Agent's Tox name<input name="guide_name" maxlength="120"></label>
+      <label>Agent's Tox status line<input name="status_message" maxlength="200"></label>
+    </div>
+    <label>Reference map for agents (a file they start research from; optional)<input name="library_map" spellcheck="false"></label>
+    <label>Friend-request greeting ({name} = the guest)<input name="greeting" maxlength="900"></label>
+    <details><summary class="hint">Brief for threads Toxline creates itself (threads you set up keep your own instructions)</summary>
+      <textarea name="persona" rows="14" spellcheck="false"></textarea>
+      <p class="hint">Placeholders: {owner} {guide_name} {topic_clause} {library_clause} {tox_send} {about}</p>
+    </details>
+    <menu><button value="cancel" formnovalidate class="ghost">Close</button><button value="ok" class="primary">Save</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-ask">
+  <form method="dialog">
+    <h2 id="ask-title"></h2>
+    <p class="hint" id="ask-text"></p>
+    <menu><button value="cancel" class="ghost">Cancel</button><button value="ok" class="primary" id="ask-ok">OK</button></menu>
+  </form>
+</dialog>
+
+<div id="toast" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>

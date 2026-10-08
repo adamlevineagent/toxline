@@ -1,0 +1,6 @@
+vcpkg/
+c-toxcore/
+build/
+__pycache__/
+*.tox
+*.tox.tmp

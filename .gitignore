@@ -1,0 +1,17 @@
+state/
+__pycache__/
+*.pyc
+spike/
+tox/vcpkg/
+tox/build/
+state-fake/
+tox/c-toxcore/
+tox/deps/
+*.log
+state-*/
+tools/peers/
+outbox/
+library/
+.claude/
+replies/
+tox/bin/
