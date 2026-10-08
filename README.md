@@ -34,33 +34,41 @@ bridge between Tox and Codex threads.
 
 ## Requirements
 
-- Windows 10/11 with **Codex Desktop** installed and running (toxline drives its threads).
-  Linux and macOS aren't supported yet: toxcore loads from the system library there and toxline
-  can drive threads through `codex app-server` (`--ingress codex`), but `tox-send` is PowerShell
-  and nothing has been tested off Windows.
-- Python 3.11+ on PATH (standard library only; no pip installs)
-- A build of **c-toxcore** (`toxcore.dll`). `tox/build.bat` and [`tox/README.md`](tox/README.md)
-  build it from source with MSVC + vcpkg in a few minutes.
+- Windows 10/11 (x64) with **Codex Desktop** installed, signed in and running (toxline drives its
+  threads). Linux and macOS aren't supported yet: toxcore loads from the system library there and
+  toxline can drive threads through `codex app-server` (`--ingress codex`), but `tox-send` is
+  PowerShell and nothing has been tested off Windows.
+- **Python 3.11+** on PATH (standard library only; no pip installs). From
+  [python.org](https://www.python.org/downloads/), tick "Add python.exe to PATH".
+- The **Tox library** (`toxcore.dll`). `Setup-Toxline.cmd` downloads a prebuilt copy from this
+  repo's [release](https://github.com/adamlevineagent/toxline/releases/tag/toxcore-v0.2.23) and checks
+  its checksums. To build it yourself instead, see [`tox/README.md`](tox/README.md).
 
 ## Quick start
 
-1. **Build toxcore** once: follow [`tox/README.md`](tox/README.md). You end up with
-   `tox\bin\toxcore.dll`, `libsodium.dll` and `pthreadVC3.dll`. Check it with
-   `python -X utf8 tox\selftest.py` (two local nodes befriend each other and exchange messages).
-2. **Start toxline:** double-click `Start-Toxline.cmd`. It starts the service and opens the viewer
-   at http://127.0.0.1:8765/. The agent's Tox ID is at the top-left; click it to copy.
-3. **Make it yours:** ⚙ Settings: your name (how agents refer to you), the agent's Tox name and
-   status line, an optional topic and an optional *reference map* (a file agents should start
-   research from), and the friend-request greeting.
-4. **Invite someone.** In Codex Desktop, create the thread that should answer them and set it up
-   the way you like. Then either:
-   - give them the agent's Tox ID; their friend request appears in the viewer's sidebar, and
-     **Set up guest** binds them to a thread, or
-   - click **+ Guest**, paste *their* Tox ID (from their client's profile), and pick the thread
-     (or paste its ID / `codex://threads/…` link). The agent sends them a friend request.
+1. **Get the code:** `git clone https://github.com/adamlevineagent/toxline`, or on GitHub use
+   **Code → Download ZIP** and unzip it somewhere permanent (not Downloads, if you clean that out).
+2. **Set up once:** double-click `Setup-Toxline.cmd`. It checks Python, downloads the Tox library
+   and runs a quick Tox self-test. Windows may ask to let Python through the firewall: allow it.
+3. **Start toxline:** with Codex Desktop running, double-click `Start-Toxline.cmd`. It starts the
+   service and opens the viewer at http://127.0.0.1:8765/. Your agent's Tox ID is at the top-left;
+   click it to copy. The dot next to it turns green once it's on the Tox network (10–30 seconds).
+4. **Make it yours:** ⚙ Settings: your name (how agents refer to you), your agent's Tox name and
+   status line, an optional topic and *reference map* (a file agents start research from), and the
+   friend-request greetings.
+5. **Connect to someone.** Click **+ Guest**, then:
+   - **Talking to someone's agent?** (e.g. you were given an agent's Tox ID to try): choose
+     **An agent to question**, paste their agent's Tox ID, and write what your agent should find out.
+     Leave the thread on "Create a new thread". A thread called "Tox · name" appears in Codex
+     Desktop; your agent opens the conversation once the other side accepts, and reports to you
+     there. Talk to your agent in that thread like any other.
+   - **Inviting a person?** Choose **A person** and paste the Tox ID from their Tox app (qTox,
+     uTox, aTox…), or just give them your agent's Tox ID: their friend request appears in the
+     sidebar with **Set up guest**.
 
-   Toxline posts a short note into the thread telling the agent who it's talking to and how to
-   reply. From then on, their messages arrive as `[Tox message from <name>]` blocks.
+   Each contact gets its own Codex thread, seeded with a brief from Settings (or bind a thread you
+   set up yourself). Their messages arrive there as `[Tox message from <name>]` blocks, and the
+   viewer shows the chat exactly as they see it.
 
 Optional: `Install-Autostart.cmd` starts toxline when you sign in (logs go to
 `state\toxline.log`); `Remove-Autostart.cmd` undoes it.
@@ -190,7 +198,8 @@ to its own `codex app-server`, which can only deliver to threads that aren't ope
 | `toxline/persona_default.md` | brief for threads toxline creates itself |
 | `bin/tox-send.ps1` | the agent's send command |
 | `viewer/` | the viewer (vanilla JS, served by the service) |
-| `tox/` | toxcore build script, Python binding (`toxcore.py`) and self-test |
+| `Setup-Toxline.cmd` | one-time setup: checks Python, fetches the Tox library, self-test |
+| `tox/` | Python binding (`toxcore.py`), self-test, `get-toxcore.ps1` (prebuilt download) and `build.bat` (build from source) |
 | `tools/` | test peer and debugging helpers |
 
 All state lives in `state/` (or `TOXLINE_HOME`) and is never committed.
@@ -198,4 +207,5 @@ All state lives in `state/` (or `TOXLINE_HOME`) and is never committed.
 ## License
 
 MIT, see [LICENSE](LICENSE). Toxline loads c-toxcore at runtime; c-toxcore itself is GPLv3
-and is not included here. You build it yourself with `tox/build.bat`.
+and is not included in this repo: `Setup-Toxline.cmd` downloads a prebuilt copy (with its source and
+licenses) from this repo's releases, or you build it yourself with `tox/build.bat`.

@@ -5,6 +5,11 @@ setlocal
 cd /d "%~dp0"
 set "PYTHONIOENCODING=utf-8"
 curl -s -o nul http://127.0.0.1:8765/api/state && goto open
+if not exist "tox\bin\toxcore.dll" (
+  echo The Tox library isn't set up yet. Double-click Setup-Toxline.cmd first.
+  pause
+  exit /b 1
+)
 start "Toxline service" /min python -X utf8 toxlined.py --ingress desktop --port 8765
 for /l %%i in (1,1,30) do (
   timeout /t 1 /nobreak >nul

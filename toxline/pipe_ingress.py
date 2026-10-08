@@ -88,6 +88,24 @@ def find_pipe():
     return None
 
 
+def any_desktop_thread():
+    """A fresh install has no thread of its own yet, and Desktop's thread tools need a real
+    calling thread. Borrow the newest Codex Desktop thread just to create Toxline's own."""
+    import sqlite3
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    for db in sorted(home.glob("state_*.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            r = c.execute("select id from threads where archived=0 order by "
+                          "(source='vscode') desc, updated_at desc limit 1").fetchone()
+            c.close()
+        except sqlite3.Error:
+            continue
+        if r:
+            return r[0]
+    return None
+
+
 class DesktopIngress(CodexIngress):
     """send_message_to_thread through Desktop. If Desktop isn't running, fall back to
     toxline's own app-server (which works only while the thread isn't open in Desktop)."""
@@ -194,7 +212,7 @@ class DesktopIngress(CodexIngress):
         The brief is the persona template filled from config (owner, topic, reference map) plus
         the guest's notes, so updating Settings updates every future guest without pasteovers."""
         caller = self.j.get("home_thread") or next(
-            (c["thread_id"] for c in self.j.contacts() if c.get("thread_id")), None)
+            (c["thread_id"] for c in self.j.contacts() if c.get("thread_id")), None) or any_desktop_thread()
         if not caller or not self.pipe():
             return super().create_thread(contact)   # no Desktop: toxline's own app-server
         if not self.j.get("home_thread"):
