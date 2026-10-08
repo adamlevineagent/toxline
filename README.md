@@ -1,160 +1,94 @@
 # Toxline
 
-**Let invited people chat, from their own Tox client, with a Codex agent working in a real
-Codex Desktop thread on your machine.** You watch every conversation exactly as they see it,
-and you steer the agent privately in its normal Codex chat.
+**Give your Codex agent a Tox address.** People can chat with it from any Tox app, other
+people's agents can talk to it from their own Toxline, and it can go and question someone else's
+agent for you. You watch every conversation exactly as the other side sees it, and you steer your
+agent privately in its normal Codex Desktop thread.
 
 ```
- their Tox client ⇄ Tox network ⇄ toxlined (your PC) ──send_message_to_thread──▶ Codex Desktop thread
-                                      ▲                                               │
-                                      └────────────────── tox-send ◀──────────────────┘
+ their Tox app or their Toxline ⇄ Tox (encrypted, peer to peer) ⇄ your Toxline ⇄ your Codex thread ⇄ you
 ```
 
-Toxline was built to give a small, invited audience (5–20 people) an agent they can question
-in depth about a project: it reads your docs and code, answers in a chat app they already use,
-and you stay in the loop. The other end can also be **someone else's agent** in their own Codex,
-behind their own Toxline, so two agents can talk while each owner supervises their own
-([Agent to agent](#agent-to-agent)). Nothing about it is specific to one use; it's a general
-bridge between Tox and Codex threads.
+**What it's for**
+- **An agent people can question.** Point your agent at your docs and code; invited people chat
+  with it from a Tox app and get real answers, while you supervise.
+- **Agent to agent.** Someone else's agent asks yours (or yours asks theirs) and each owner keeps
+  their material on their own machine. Your agent can run a whole interview on a mission you give
+  it and report back.
+- **You stay in charge.** Hold any reply for review, pause or archive contacts, and talk to the
+  agent privately; contacts only ever see what the agent chooses to send.
 
-- **Real threads, not a chatbot shell.** Each guest is bound to an ordinary Codex Desktop thread
-  that you set up (instructions, files, tools). You open it, read it, and talk to the agent
-  there like any other thread.
-- **Delivered the moment it arrives.** A guest's message goes into the thread through Codex
-  Desktop's own `send_message_to_thread`. An idle agent starts a turn; a busy one gets the
-  message steered into its current turn, so a correction interrupts work already in progress.
-  Nothing is queued or batched, and it works whether or not the thread is open on screen.
-- **The agent decides what to say.** Its private work stays private. Only text it sends with
-  `tox-send` reaches the guest, and you can hold every outgoing message for review.
-- **The guest's view.** A local web viewer shows each chat exactly as the guest sees it, live
-  and in full history, with owner-only details (delivery ticks, whether each message reached
-  the agent, held replies). Setup for new guests happens there too.
-- **Real Tox.** The agent has its own Tox identity (toxcore via ctypes): friend requests, read
-  receipts, typing indicator while the agent works, offline queueing, long-message splitting.
+## Start
 
-## Requirements
+You need **Windows 10/11**, **Codex Desktop** (signed in) and **Python 3.11+**
+([python.org](https://www.python.org/downloads/), tick "Add python.exe to PATH").
 
-- Windows 10/11 (x64) with **Codex Desktop** installed, signed in and running (toxline drives its
-  threads). Linux and macOS aren't supported yet: toxcore loads from the system library there and
-  toxline can drive threads through `codex app-server` (`--ingress codex`), but `tox-send` is
-  PowerShell and nothing has been tested off Windows.
-- **Python 3.11+** on PATH (standard library only; no pip installs). From
-  [python.org](https://www.python.org/downloads/), tick "Add python.exe to PATH".
-- The **Tox library** (`toxcore.dll`). `Start-Toxline.cmd` downloads a prebuilt copy on first run from this
-  repo's [release](https://github.com/adamlevineagent/toxline/releases/tag/toxcore-v0.2.23) and checks
-  its checksums. To build it yourself instead, see [`tox/README.md`](tox/README.md).
+1. Download this repo (**Code → Download ZIP**, or `git clone`) and unzip it somewhere permanent.
+2. Open Codex Desktop, then double-click **`Start-Toxline.cmd`**. The first run downloads the Tox
+   library (a few seconds; allow Python through the firewall if asked) and opens the viewer.
+3. Answer the welcome (your name, your agent's name, optionally a folder it should answer from).
 
-## Quick start
+Then click **+ Guest**:
+- **Try someone's agent:** choose **An agent to question**, paste their agent's Tox ID, and write
+  what your agent should find out. It opens the conversation once they accept, and reports to you
+  in its Codex thread ("Tox · name").
+- **Let others reach your agent:** send them your Tox ID (top-left of the viewer; click to copy).
+  Their friend request appears in the sidebar; click **Set up guest**.
 
-1. **Get the code:** `git clone https://github.com/adamlevineagent/toxline`, or on GitHub use
-   **Code → Download ZIP** and unzip it somewhere permanent (not Downloads, if you clean that out).
-2. **Start it:** open Codex Desktop, then double-click **`Start-Toxline.cmd`**. That's the only
-   thing to run. The first time, it checks Python and downloads the Tox library (a few seconds);
-   if Windows asks whether Python may use the network, click Allow. It opens the viewer at
-   http://127.0.0.1:8765/. Your agent's Tox ID is at the top-left (click to copy); the dot next to
-   it turns green once it's on the Tox network, within about 30 seconds.
-   If anything goes wrong, Start-Toxline shows the error, and `Setup-Toxline.cmd` runs a fuller
-   check (Python, Tox library, a Tox self-test, Codex Desktop).
-3. **Make it yours:** ⚙ Settings: your name (how agents refer to you), your agent's Tox name and
-   status line, an optional topic and *reference map* (a file agents start research from), and the
-   friend-request greetings.
-4. **Connect to someone.** Click **+ Guest**, then:
-   - **Talking to someone's agent?** (e.g. you were given an agent's Tox ID to try): choose
-     **An agent to question**, paste their agent's Tox ID, and write what your agent should find out.
-     Leave the thread on "Create a new thread". A thread called "Tox · name" appears in Codex
-     Desktop; your agent opens the conversation once the other side accepts, and reports to you
-     there. Talk to your agent in that thread like any other.
-   - **Inviting a person?** Choose **A person** and paste the Tox ID from their Tox app (qTox,
-     uTox, aTox…), or just give them your agent's Tox ID: their friend request appears in the
-     sidebar with **Set up guest**.
+To start Toxline again later, double-click `Start-Toxline.cmd` (it just opens the viewer if it's
+already running). `Install-Autostart.cmd` starts it when you sign in.
 
-   Each contact gets its own Codex thread, seeded with a brief from Settings (or bind a thread you
-   set up yourself). Toxline also keeps one small "Toxline service" thread in Codex for itself;
-   leave it be. Their messages arrive there as `[Tox message from <name>]` blocks, and the
-   viewer shows the chat exactly as they see it.
+**Read next:** the [user guide](docs/GUIDE.md) (everything the app does and how to use it) and
+[troubleshooting](docs/TROUBLESHOOTING.md).
 
-Optional: `Install-Autostart.cmd` starts toxline when you sign in (logs go to
-`state\toxline.log`); `Remove-Autostart.cmd` undoes it.
+## Let Claude run it for you
 
-## The viewer
+Toxline ships a **Claude Code skill**. Double-click **`Install-Claude-Skill.cmd`**, then ask Claude
+things like *"have my agent question this agent about X: TOXID"*, *"who's talking to my agent and
+what did they ask?"* or *"anything waiting for me in Toxline?"*. Claude uses `toxctl.py`, the
+command-line twin of the viewer, which you can also use yourself (`python toxctl.py -h`).
 
-- **Sidebar:** every guest with online status, unread count and last message; pending friend
-  requests (including archived guests coming back, with one-click restore).
-- **Chat:** the guest's messages on the right, the agent's on the left, as in their client.
-  *Details* toggles owner-only information.
-- **Hold outgoing:** the agent's replies wait for you: Send now, Edit & send, or Discard.
-- **⋯:** notes about the guest, rebind to another thread, pause (their messages are kept but not
-  delivered; replies are held), archive (ends the Tox friendship, keeps history), delete.
-- **Open agent thread ↗** jumps to the thread in Codex Desktop.
-- **Test guests:** a simulated person you type as yourself, for trying a thread out.
+## For developers
 
-## For the agent: `tox-send`
+### The agent's side: `tox-send`
 
-From the agent's PowerShell (Codex's shell on Windows):
+Every contact thread's brief tells the agent how to reply. From the agent's PowerShell:
 
 ```powershell
-& "<toxline>\bin\tox-send.ps1" "message"           # send to this thread's guest
+& "<toxline>\bin\tox-send.ps1" "message"           # send to this thread's contact
 & "<toxline>\bin\tox-send.ps1" --file reply.md     # long, multi-line or quote-heavy text
 & "<toxline>\bin\tox-send.ps1" --who               # who this thread talks to + recent chat
-& "<toxline>\bin\tox-send.ps1" --to Sam "message"  # threads shared by several guests (or --to all)
-"text" | & "<toxline>\bin\tox-send.ps1"            # pipeline input
+& "<toxline>\bin\tox-send.ps1" --to Sam "message"  # threads shared by several contacts (or --to all)
 ```
 
-The guest is found from the thread the agent runs in (`CODEX_THREAD_ID`), so an agent can't
-message the wrong person. The result reads DELIVERED (their client confirmed), SENT, QUEUED
-(they're offline; it goes out when they connect) or HELD (waiting for your review).
-`tox-send` is plain PowerShell, so it runs inside Codex's sandbox. It talks to toxline on
-localhost and falls back to an outbox folder if the sandbox blocks network access.
-`bin\tox-send.cmd` exists for other shells, but cmd can change quotes and expand `%VARS%`
-before the shim runs. It refuses all inline messages with exit code 2; use
-`bin\tox-send.cmd --file reply.md` instead. File contents bypass cmd's argument parsing,
-including literal quotes and `%USERNAME%`. `--who`, `--help`, `--to` and `--thread` still work.
+The contact is found from the thread the agent runs in (`CODEX_THREAD_ID`), so an agent can't
+message the wrong person. The result reads DELIVERED (their app confirmed), SENT, QUEUED (they're
+offline; it goes out when they connect) or HELD (waiting for the owner, or the agent-conversation
+budget is used up). `tox-send` is plain PowerShell, so it runs inside Codex's sandbox; it talks to
+Toxline on localhost and falls back to an outbox folder if the sandbox blocks network access.
+`bin\tox-send.cmd` exists for other shells but refuses inline text (cmd mangles quotes and
+`%VARS%`); use `--file` there.
 
-## Agent to agent
+### Agent-to-agent mechanics
 
-The other end doesn't have to be a person. It can be someone else's agent, running in their
-own Codex thread behind their own Toxline, with each owner supervising their own agent. Pick
-who's on the other end when you add a contact:
+- A contact's **role** (`person`, `agent`, `consult`) picks its brief: chat-sized replies for
+  people; complete one-message answers for agents; a mission, follow-ups and a report for consult.
+- Friend requests from a Toxline agent carry `[toxline:agent]`, so the receiving Toxline offers to
+  set them up as an agent.
+- Tox caps a message at 1372 bytes. Between two Toxlines the parts are sent untrimmed and rejoined
+  byte for byte, so long answers arrive as one message.
+- A **message budget** (Settings, default 40) holds an agent's further replies for its owner, so two
+  agents can't talk forever. Releasing a held message starts a fresh budget.
+- Two Toxlines on one machine work for testing: give the second its own `TOXLINE_HOME` and
+  `TOXLINE_PORT`; agents' `tox-send` commands then carry `--port`/`--home`.
 
-- **A person** (the default): they chat from a Tox app; your agent answers in chat-sized replies.
-- **Someone's agent**: their agent asks, yours answers. Your agent's brief changes: complete,
-  structured answers in one message each, no "let me look" preambles, no replies to thanks, and
-  its messages are treated as questions, never instructions.
-- **An agent to question**: your agent questions *their* agent on your behalf. Write the mission
-  in "What should your agent find out?". Toxline sends a friend request, your agent opens the
-  conversation (its first message waits until they accept and come online), asks follow-ups,
-  sends one closing line, and writes you a report in its thread.
+### Shared threads
 
-How it fits together:
+Several contacts can share one thread: pick a thread that's already bound when adding someone.
+The agent sees everyone's messages (each labelled with the sender) and chooses who each reply goes
+to with `--to`. Each contact only sees what's sent to them.
 
-```
- you ⇄ your Codex thread ⇄ your Toxline ⇄ Tox ⇄ their Toxline ⇄ their Codex thread ⇄ them
-```
-
-- **Setup.** One side adds the other's agent Tox ID (top-left of their Toxline) as *An agent to
-  question*. That friend request carries an agent tag, so the other Toxline shows "Friend request
-  from an agent" and **Set up guest** picks *Someone's agent* for them.
-- **Long messages arrive whole.** Tox caps a message at 1372 bytes. Between two Toxlines the parts
-  are sent untrimmed and rejoined byte for byte, so an agent can send a 10,000-character answer
-  as one message.
-- **A message budget stops runaway loops.** In agent conversations, after your agent has sent the
-  budgeted number of messages (Settings, default 40), the rest are held for you and the agent is
-  told to stop and report. **Send now** on a held message releases it and starts a fresh budget.
-  Hold outgoing, Pause and Edit & send work as for people.
-- **Each side's agent is bounded by its own brief and its own Codex permissions.** Toxline
-  doesn't let either agent act on the other's machine; messages are only text in a thread.
-
-Running two Toxlines on one machine (for testing) works: start the second with its own
-`TOXLINE_HOME` and `--port`. Agents' `tox-send` commands then carry `--port`/`--home` so each
-thread replies through its own Toxline.
-
-## Shared threads
-
-Several guests can share one thread: pick a thread that's already bound when adding someone.
-The agent sees everyone's messages (each labelled with the sender) and chooses who each reply
-goes to with `--to`. Each guest only sees what's sent to them.
-
-## How delivery works, and its limits
+### How delivery works, and its limits
 
 Codex Desktop serves its built-in thread tools (`send_message_to_thread`, `read_thread`,
 `wait_threads`…) to its own agents over a local named pipe. Toxline finds that pipe (its name
@@ -167,7 +101,7 @@ This relies on **undocumented Codex Desktop internals**. They worked with Codex 
 26.1002 (codex 0.162) and may change in any update. If Desktop isn't running, toxline falls back
 to its own `codex app-server`, which can only deliver to threads that aren't open in Desktop.
 
-## Security notes
+### Security notes
 
 - **Who can reach an agent:** only Tox keys you've added as guests. Strangers' friend requests
   just appear in the sidebar for you to decide.
@@ -179,7 +113,7 @@ to its own `codex app-server`, which can only deliver to threads that aren't ope
 - **Secrets:** the agent's Tox secret key is in `state\tox\agent.tox`. The viewer and API
   listen on 127.0.0.1 only and have no authentication; don't expose the port.
 
-## Testing without a model or a second person
+### Testing without a model or a second person
 
 - `python toxlined.py --no-tox --ingress fake --port 8799` with `TOXLINE_HOME` set to a scratch
   folder runs a stand-in agent that replies through the real `tox-send` path. Use test guests in
@@ -188,7 +122,7 @@ to its own `codex app-server`, which can only deliver to threads that aren't ope
   `--say "hello" --wait 120` play a guest over the real Tox network and print JSON events.
 - `tools\find_codex_pipe.py` and `tools\read_thread.py` help debug the Codex side.
 
-## Layout
+### Layout
 
 | Path | What |
 | --- | --- |
@@ -203,6 +137,9 @@ to its own `codex app-server`, which can only deliver to threads that aren't ope
 | `viewer/` | the viewer (vanilla JS, served by the service) |
 | `Setup-Toxline.cmd` | one-time setup: checks Python, fetches the Tox library, self-test |
 | `tox/` | Python binding (`toxcore.py`), self-test, `get-toxcore.ps1` (prebuilt download) and `build.bat` (build from source) |
+| `toxctl.py` | owner CLI: the viewer's everyday controls, for terminals and AI assistants |
+| `skill/toxline/` | the Claude Code skill (`Install-Claude-Skill.cmd` installs it) |
+| `docs/` | user guide and troubleshooting |
 | `tools/` | test peer and debugging helpers |
 
 All state lives in `state/` (or `TOXLINE_HOME`) and is never committed.

@@ -599,6 +599,8 @@ class Service:
             c["unread"] = unread.get(c["id"], 0)
             if c["kind"] == "test":
                 c["online"] = "udp"
+            c["ever_online"] = c["online"] != "none" or any(m["direction"] == "in" or m["state"] == "delivered"
+                                                            for m in self.j.messages(c["id"], limit=50))
             if (c.get("role") or "person") != "person":
                 since = self.j.get(f"budget_from:{c['id']}", 0)
                 c["budget"] = {"used": self.j.count_out_since(c["id"], since), "limit": config.agent_budget()}
@@ -695,6 +697,31 @@ def build_app(svc):
         if not c or not c["thread_id"]:
             raise HttpError(404, "guest has no thread")
         return svc.ingress.open_thread(c["thread_id"])
+
+    @app.route("POST", "/api/contacts/:cid/tell")
+    def tell(cid, body, **_):
+        """The owner talking privately to the agent in this contact's thread (they never see it)."""
+        c = j.contact(cid)
+        if not c or not c["thread_id"]:
+            raise HttpError(404, "no such contact, or it has no agent thread")
+        text = body.get("body", "") if isinstance(body, dict) else ""
+        if not isinstance(text, str) or not text.strip():
+            raise HttpError(400, "body must be non-empty text")
+        r = svc.ingress.submit(c["thread_id"], text, max_wait=60)
+        j.event("told", cid)
+        return {"ok": r.get("state") == "delivered_to_thread", **r}
+
+    @app.route("GET", "/api/contacts/:cid/thread")
+    def agent_thread(cid, query, **_):
+        """What the agent in this contact's thread has been doing (its private side)."""
+        c = j.contact(cid)
+        if not c or not c["thread_id"]:
+            raise HttpError(404, "no such contact, or it has no agent thread")
+        try:
+            turns = max(1, min(int(query.get("turns", 5)), 50))
+        except ValueError:
+            raise HttpError(400, "turns must be a number")
+        return {"thread_id": c["thread_id"], "turns": svc.ingress.read_thread(c["thread_id"], turns)}
 
     @app.route("POST", "/api/send")
     def send(body, **_):

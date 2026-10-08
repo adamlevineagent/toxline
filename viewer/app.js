@@ -464,7 +464,7 @@ $("#form-more").addEventListener("submit", async e => {
   } catch (err) { $("#more-error").textContent = err.message; }
 });
 
-const SETTINGS = ["owner", "topic", "guide_name", "status_message", "library_map", "greeting", "agent_greeting", "agent_budget"];
+const SETTINGS = ["owner", "topic", "guide_name", "status_message", "library_map", "read_first", "greeting", "agent_greeting", "agent_budget"];
 $("#btn-settings").onclick = async () => {
   const f = $("#form-settings"), me = state.snap.self;
   $("#settings-facts").innerHTML = [["Agent Tox ID", me.tox_id || "Tox disabled"], ["Tox network", me.connection], ["Delivery", state.snap.ingress]]
@@ -489,12 +489,36 @@ $("#form-settings").addEventListener("submit", async e => {
 window.addEventListener("hashchange", () => select(decodeURIComponent(location.hash.slice(1)) || null));
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state.current) api("POST", `/api/contacts/${state.current}/seen`).catch(() => {}); });
 
+// First run: a short welcome that sets the few things that matter (until the owner has a name).
+async function welcome() {
+  try { if (localStorage.getItem("toxline.welcomed")) return; } catch (e) {}
+  const cfg = await api("GET", "/api/settings");
+  if (cfg.owner && cfg.owner !== "the owner") return;
+  const f = $("#form-welcome");
+  f.elements.guide_name.value = "";
+  f.elements.owner.oninput = () => { if (!f.elements.guide_name.dataset.touched) f.elements.guide_name.value = f.elements.owner.value.trim() ? `${f.elements.owner.value.trim()}'s agent` : ""; };
+  f.elements.guide_name.oninput = () => (f.elements.guide_name.dataset.touched = "1");
+  $("#dlg-welcome").showModal();
+}
+$("#form-welcome").addEventListener("submit", async e => {
+  const f = e.target;
+  try { localStorage.setItem("toxline.welcomed", "1"); } catch (err) {}
+  if (e.submitter?.value !== "ok") return;
+  e.preventDefault();
+  const owner = f.elements.owner.value.trim(), guide = f.elements.guide_name.value.trim();
+  try {
+    await api("POST", "/api/settings", { owner, guide_name: guide, status_message: `${owner}'s agent, via Toxline`, library_map: f.elements.library_map.value.trim() });
+    $("#dlg-welcome").close(); toast("Saved. Next: + Guest"); refresh();
+  } catch (err) { toast(err.message); }
+});
+
 (async function boot() {
   await refresh();
   connect();
   let start = decodeURIComponent(location.hash.slice(1));
   if (!start) { try { start = localStorage.getItem("toxline.current") || ""; } catch (e) {} }
   if (start && state.snap.contacts.some(c => c.id === start)) location.hash === "#" + start ? select(start) : (location.hash = start);
+  welcome().catch(() => {});
 })();
 setInterval(() => { if (state.snap) renderContacts(); }, 30000);
 

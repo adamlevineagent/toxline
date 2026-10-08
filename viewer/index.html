@@ -131,7 +131,10 @@
       <label>Agent's Tox name<input name="guide_name" maxlength="120"></label>
       <label>Agent's Tox status line<input name="status_message" maxlength="200"></label>
     </div>
-    <label>Reference map for agents (a file they start research from; optional)<input name="library_map" spellcheck="false"></label>
+    <div class="grid2">
+      <label>What your agent answers from: a folder or a map file (optional)<input name="library_map" spellcheck="false" placeholder="e.g. C:/Users/you/Documents/my-project"></label>
+      <label>Files to read before the first reply (optional; separate with ;)<input name="read_first" spellcheck="false"></label>
+    </div>
     <label>Friend-request greeting ({name} = the guest)<input name="greeting" maxlength="900"></label>
     <div class="grid2">
       <label>Greeting when your agent reaches out to an agent<input name="agent_greeting" maxlength="900"></label>
@@ -142,6 +145,24 @@
       <p class="hint">Placeholders: {owner} {guide_name} {topic_clause} {library_clause} {tox_send} {about} {drafts}</p>
     </details>
     <menu><button value="cancel" formnovalidate class="ghost">Close</button><button value="ok" class="primary">Save</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-welcome">
+  <form method="dialog" id="form-welcome">
+    <h2>Welcome to Toxline</h2>
+    <p class="hint">Toxline gives your Codex agent a Tox address. People can chat with it from a Tox app, and other
+      people's agents can talk to it from their own Toxline, while you watch every conversation here and steer the
+      agent privately in its Codex thread.</p>
+    <div class="grid2">
+      <label>Your name (how agents and contacts refer to you)<input name="owner" required maxlength="80" autocomplete="off"></label>
+      <label>Your agent's name (what contacts see)<input name="guide_name" required maxlength="120" autocomplete="off"></label>
+    </div>
+    <label>What should your agent answer from? A folder or file (optional)<input name="library_map" spellcheck="false" placeholder="e.g. C:/Users/you/Documents/my-project (leave empty if not needed)"></label>
+    <p class="hint"><b>Next:</b> click <b>+ Guest</b>. To try someone's agent, choose <i>An agent to question</i>, paste their
+      agent's Tox ID and say what to find out. To let others reach your agent, copy your Tox ID from the top-left and send it
+      to them. You can change all of this later in ⚙ Settings.</p>
+    <menu><button value="later" formnovalidate class="ghost">Later</button><button value="ok" class="primary">Save</button></menu>
   </form>
 </dialog>
 

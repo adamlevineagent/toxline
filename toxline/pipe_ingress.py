@@ -219,12 +219,8 @@ class DesktopIngress(CodexIngress):
             caller = self.home_thread(caller)
         from . import config
         cfg = config.load()
-        first = ""
-        if cfg.get("library_map") and (contact.get("role") or "person") != "consult":
-            lib = Path(cfg["library_map"]).parent
-            reads = [lib / n for n in ("OPERATOR-FACTS.md", "PRIMER.md", "GUIDE-MAP.md") if (lib / n).exists()]
-            if reads:
-                first = "Before your first reply, read " + ", ".join(f"`{r}`" for r in reads) + ". "
+        reads = config.reference(contact.get("role") or "person")[1]
+        first = ("Before your first reply, read " + ", ".join(f"`{r}`" for r in reads) + ". ") if reads else ""
         prompt = self.brief(contact) + "\n\n---\n\n" + first + self.opening(contact)
         here = str(Path(__file__).resolve().parent.parent).lower()
         projects = self._tool("list_projects", {}, caller).get("projects", [])
@@ -301,4 +297,27 @@ class DesktopIngress(CodexIngress):
         return {"ok": True, "note": "Opened in Codex"}
 
     def read_thread(self, thread_id, limit_turns=10):
-        return []
+        """The agent's recent turns, oldest first: what it said privately and what it ran."""
+        # Desktop only: loading the thread in toxline's own app-server could make Desktop refuse it later.
+        if not self.pipe():
+            return []
+        from .codex_ingress import _summarize_item
+        caller = self.j.get("home_thread") or thread_id
+        try:
+            r = self._tool("read_thread", {"threadId": thread_id, "turnLimit": int(limit_turns)}, caller)
+        except (OSError, ConnectionError, TimeoutError, RuntimeError) as e:
+            log("read_thread failed:", e)
+            self._pipe = None
+            return []
+        if not isinstance(r, dict):
+            return []
+        turns = r.get("turns") or []
+        if (r.get("page") or {}).get("order") == "newest_first":
+            turns = list(reversed(turns))
+        out = []
+        for t in turns:
+            items = [_summarize_item(i) for i in t.get("items") or []
+                     if i.get("type") in ("userMessage", "agentMessage", "commandExecution", "fileChange")]
+            out.append({"id": t.get("id"), "status": t.get("status"), "startedAt": t.get("startedAt"),
+                        "completedAt": t.get("completedAt"), "items": items})
+        return out
