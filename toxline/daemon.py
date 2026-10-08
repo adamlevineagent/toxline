@@ -718,7 +718,7 @@ def build_app(svc):
         if not c or not c["thread_id"]:
             raise HttpError(404, "no such contact, or it has no agent thread")
         try:
-            turns = max(1, min(int(query.get("turns", 5)), 50))
+            turns = max(1, min(int(query.get("turns", 5)), 10))
         except ValueError:
             raise HttpError(400, "turns must be a number")
         return {"thread_id": c["thread_id"], "turns": svc.ingress.read_thread(c["thread_id"], turns)}

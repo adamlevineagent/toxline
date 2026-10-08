@@ -304,7 +304,7 @@ class DesktopIngress(CodexIngress):
         from .codex_ingress import _summarize_item
         caller = self.j.get("home_thread") or thread_id
         try:
-            r = self._tool("read_thread", {"threadId": thread_id, "turnLimit": int(limit_turns)}, caller)
+            r = self._tool("read_thread", {"threadId": thread_id, "turnLimit": max(1, min(int(limit_turns), 10))}, caller)  # Desktop caps it at 10
         except (OSError, ConnectionError, TimeoutError, RuntimeError) as e:
             log("read_thread failed:", e)
             self._pipe = None

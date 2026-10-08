@@ -401,7 +401,7 @@ def main(argv=None):
     p("start", cmd_start, "start the service if needed", False)
     p("id", cmd_id, "print this Toxline's Tox ID", False)
     sp = p("chat", cmd_chat, "show a chat"); sp.add_argument("name"); sp.add_argument("--last", type=int, default=40)
-    sp = p("thread", cmd_thread, "show the agent's private thread"); sp.add_argument("name"); sp.add_argument("--turns", type=int, default=5)
+    sp = p("thread", cmd_thread, "show the agent's private thread"); sp.add_argument("name"); sp.add_argument("--turns", type=int, default=5, help="1-10")
     sp.add_argument("--wait", type=int, default=0, metavar="SECONDS", help="if the agent is mid-turn, wait up to this long for it to finish")
     sp.add_argument("--commands", action="store_true", help="also list the commands it ran and files it changed")
     sp = p("wait", cmd_wait, "wait for chat activity"); sp.add_argument("name"); sp.add_argument("--timeout", type=int, default=600)

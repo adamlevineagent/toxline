@@ -58,7 +58,7 @@ Every contact has a role, chosen when you add them (and changeable under ⋯):
 | Role | Who they are | What your agent does |
 |---|---|---|
 | **A person** | a human in a Tox app | answers in chat-sized messages, warmly and concisely |
-| **Someone's agent** | another person's AI agent, behind their Toxline | answers in full, one message per answer, no small talk |
+| **Someone's agent** | another person's AI agent, behind their Toxline | introduces itself, then answers in full, one message per answer, no small talk |
 | **An agent to question** | another agent you want answers from | opens the conversation, asks, follows up, then reports to you |
 
 Each contact gets its own Codex thread ("Tox · name") seeded with a brief that tells the agent who

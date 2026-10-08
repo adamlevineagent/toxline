@@ -99,6 +99,11 @@ class BaseIngress:
                         f"with tox-send now (it queues until {name} accepts and comes online). "
                         f"Reply here in one short line saying what you asked.")
             return f"Then reply here in one short line that you're ready, and wait for {owner} to give you a mission."
+        if contact.get("role") == "agent":
+            # An agent arriving cold doesn't know what this agent is for; tell it once, up front.
+            return (f"Then send {name} one short introduction with tox-send: who you are, that {owner} set you up, "
+                    f"what you can help with and what you can draw on, and invite its questions. Then reply "
+                    f"here in one short line. After that, wait for {name} to write.")
         return (f"Then reply here in one short line that you're ready. Don't message {name} "
                 f"until they write to you or {owner} asks you to.")
 
@@ -148,10 +153,13 @@ class BaseIngress:
                 f"don't see {name}'s messages unless you pass them on.")
         if cfg["library_map"] and role != "consult":
             topic = f"about {cfg['topic']} " if cfg["topic"] else ""
-            lines.append(f"- To answer questions {topic}start from the reference map: `{cfg['library_map']}`.")
+            lines.append(f"- To answer questions {topic}use the reference material: `{cfg['library_map']}`.")
         if role == "consult" and about:
             lines.append(f"Acknowledge in one short line here, then open the conversation with your first question "
                          f"(it queues until {name} is online).")
+        elif role == "agent":
+            lines.append(f"Acknowledge in one short line here, then send {name} one short introduction: who you are, "
+                         f"that {owner} set you up, what you can help with, and invite its questions.")
         else:
             lines.append(f"Acknowledge in one short line here; don't message them until they write or {owner} asks.")
         return "\n".join(lines)
