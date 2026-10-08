@@ -66,15 +66,46 @@ function needs(c) {
 }
 const isPublic = c => c.thread_id && c.thread_id === state.snap.public_thread;
 const isAgent = c => ["agent", "consult"].includes(c.role);
+// "deep" only means something next to someone who isn't: hide it while everyone is deep.
+const showDeep = () => state.snap.tiers && state.snap.contacts.some(c => c.status !== "archived" && (isPublic(c) || c.tier !== "deep"));
 const FILTERS = [
   ["all", "All", c => c.status !== "archived"],
   ["needs", "Needs you", c => c.status !== "archived" && needs(c).any],
   ["public", "Public agent", c => c.status !== "archived" && isPublic(c)],
-  ["deep", "Deep", c => state.snap.tiers && c.status !== "archived" && !isPublic(c) && c.tier === "deep"],
+  ["deep", "Deep", c => showDeep() && c.status !== "archived" && !isPublic(c) && c.tier === "deep"],
   ["agents", "Agents", c => c.status !== "archived" && isAgent(c)],
   ["people", "People", c => c.status !== "archived" && !isAgent(c)],
   ["archived", "Archived", c => c.status === "archived"],
 ];
+
+// Friend requests are the one thing you act on from anywhere: keep them in the sidebar.
+function requestSetup(r) {
+  openNew(r.returning
+    ? { tox_id: r.public_key, fromRequest: true, returning: r.returning, name: r.returning, thread: r.thread_id || "", role: r.role || "person" }
+    : { tox_id: r.public_key, fromRequest: true, role: r.agent ? "agent" : "person", notes: r.greeting ? `Their request said: ${r.greeting}` : "" });
+}
+function renderSideNeeds() {
+  const el = $("#side-requests");
+  el.innerHTML = "";
+  const reqs = state.snap.requests || [];
+  for (const r of reqs.slice(0, 3)) {
+    const d = document.createElement("div");
+    d.className = "request";
+    d.innerHTML = `<b>${r.returning ? `${esc(r.returning)} is back` : r.agent ? "Friend request from an agent" : "Friend request"}</b> <span class="hint">${ago(r.at)}</span>
+      <div class="req-text">${esc(r.greeting || "(no message)")}</div>
+      <div class="row"><button class="primary">${r.returning ? "Restore" : "Set up"}</button><button class="ghost">Dismiss</button></div>`;
+    const [setup, dismiss] = d.querySelectorAll("button");
+    setup.onclick = () => requestSetup(r);
+    dismiss.onclick = () => api("POST", `/api/requests/${r.public_key}/dismiss`).then(refresh);
+    el.append(d);
+  }
+  // Everything else waiting (flags, held replies, more requests) is one click away on the overview.
+  const others = (state.snap.owner_requests || []).length + state.snap.contacts.filter(c => c.status !== "archived" && (c.held || c.stuck)).length
+    + Math.max(0, reqs.length - 3);
+  const link = $("#side-needs");
+  link.hidden = !others || !state.current;
+  link.textContent = `${others} thing${others > 1 ? "s" : ""} need${others > 1 ? "" : "s"} you → overview`;
+}
 
 function renderChips() {
   const el = $("#chips"), cs = state.snap.contacts;
@@ -103,7 +134,7 @@ function contactRow(c) {
   const last = c.last;
   const prefix = last ? (last.direction === "out" ? "Agent: " : "") : "";
   const dotCls = c.status === "paused" ? "paused" : (c.kind === "test" ? "udp" : c.online);
-  const flags = [c.kind === "test" ? "test" : "", ROLE_BADGE[c.role] || "", isPublic(c) ? "public" : (state.snap.tiers && c.tier === "deep" ? "deep" : ""),
+  const flags = [c.kind === "test" ? "test" : "", ROLE_BADGE[c.role] || "", isPublic(c) ? "public" : (showDeep() && c.tier === "deep" ? "deep" : ""),
     c.hold_outgoing ? "hold" : "", c.status === "paused" ? "paused" : ""].filter(Boolean);
   const attn = n.asks ? "asks for you" : n.held ? `${n.held} held` : n.stuck ? "stuck" : "";
   a.innerHTML = `<div class="avatar" style="background:${color(c.id)}">${esc(initials(c.name))}<span class="dot ${dotCls}"></span></div>
@@ -163,9 +194,7 @@ function renderOverview() {
     if (c.stuck) items.push({ at: c.last?.created_at || 0, html: `<b>${esc(c.name)}</b> <span class="hint">${c.stuck} message${c.stuck > 1 ? "s" : ""} stuck (not delivered)</span>`, actions: [["Open", () => (location.hash = c.id)]] });
   }
   for (const r of s.requests) items.push({ at: r.at, html: `<b>${r.returning ? esc(r.returning) + " is back" : r.agent ? "Friend request from an agent" : "Friend request"}</b> <span class="hint">${ago(r.at)}</span><div>${esc(r.greeting || "(no message)")}</div>`,
-    actions: [[r.returning ? "Restore" : "Set up", () => openNew(r.returning
-      ? { tox_id: r.public_key, fromRequest: true, returning: r.returning, name: r.returning, thread: r.thread_id || "", role: r.role || "person" }
-      : { tox_id: r.public_key, fromRequest: true, role: r.agent ? "agent" : "person", notes: r.greeting ? `Their request said: ${r.greeting}` : "" }), "primary"],
+    actions: [[r.returning ? "Restore" : "Set up", () => requestSetup(r), "primary"],
       ["Dismiss", () => api("POST", `/api/requests/${r.public_key}/dismiss`).then(refresh)]] });
   items.sort((a, b) => b.at - a.at);
   const box = $("#ov-needs-list");
@@ -214,7 +243,7 @@ function renderHead() {
   $("#chat-avatar").textContent = initials(c.name);
   $("#chat-name").textContent = c.name;
   $("#chat-kind").textContent = [c.kind === "test" ? "test" : (c.tox_name && c.tox_name !== c.name ? `Tox: ${c.tox_name}` : ""), ROLE_NOTE[c.role] || "",
-    c.thread_id && c.thread_id === state.snap.public_thread ? "answered by the public agent" : (state.snap.tiers && c.tier === "deep" ? "deep tier" : "")].filter(Boolean).join(" · ");
+    c.thread_id && c.thread_id === state.snap.public_thread ? "answered by the public agent" : (showDeep() && c.tier === "deep" ? "deep tier" : "")].filter(Boolean).join(" · ");
   $("#chat-dot").className = "dot " + (c.kind === "test" ? "udp" : c.online);
   // On the shared public agent everyone shares the thread; that's not worth listing.
   const mates = isPublic(c) ? [] : state.snap.contacts.filter(o => o.id !== c.id && o.thread_id && o.thread_id === c.thread_id && o.status !== "archived").map(o => o.name);
@@ -374,7 +403,7 @@ $("#log").addEventListener("click", async e => {
 let refreshTimer = null;
 async function refresh() {
   state.snap = await api("GET", "/api/state");
-  renderMe(); renderChips(); renderContacts();
+  renderMe(); renderSideNeeds(); renderChips(); renderContacts();
   if (!state.current) renderOverview();
   if (state.current) renderHead();
 }
@@ -637,7 +666,7 @@ $("#form-welcome").addEventListener("submit", async e => {
   await refresh();
   connect();
   let start = decodeURIComponent(location.hash.slice(1));
-  if (!start) { try { start = localStorage.getItem("toxline.current") || ""; } catch (e) {} }
+  // Open on the overview (what needs you); a chat only when the address names one.
   if (start && state.snap.contacts.some(c => c.id === start)) location.hash === "#" + start ? select(start) : (location.hash = start);
   welcome().catch(() => {});
 })();
