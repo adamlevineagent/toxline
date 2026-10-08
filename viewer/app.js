@@ -568,7 +568,7 @@ $("#btn-more").onclick = async () => {
   f.elements.tier.value = c.tier || "story";
   $("#btn-pause").textContent = c.status === "paused" ? "Resume" : "Pause";
   $("#btn-archive").textContent = c.status === "archived" ? "Unarchive" : "Archive";
-  $("#btn-delete").hidden = c.status !== "archived";
+  $("#btn-delete").hidden = false;
   $("#btn-pause").hidden = c.status === "archived";
   await fillThreads(f.elements.thread, c.thread_id);
   $("#dlg-more").showModal();
@@ -586,7 +586,10 @@ $("#btn-archive").onclick = async () => {
 };
 $("#btn-delete").onclick = async () => {
   const c = contact();
-  if (!(await ask(`Delete ${c.name} for good?`, "Their chat history in Toxline is erased. Their Codex thread is not touched.", "Delete"))) return;
+  const shared = isPublic(c) || state.snap.contacts.some(o => o.id !== c.id && o.thread_id && o.thread_id === c.thread_id);
+  if (!(await ask(`Delete ${c.name} for good?`, "Their Tox friendship and chat history in Toxline are removed"
+      + (shared ? " (their shared thread stays)." : ", and their Codex thread is archived (you can unarchive it in Codex).")
+      + " If they add you again, they arrive as someone new.", "Delete"))) return;
   try { await api("POST", `/api/contacts/${c.id}/delete`); $("#dlg-more").close(); location.hash = ""; refresh(); }
   catch (e) { $("#more-error").textContent = e.message; }
 };

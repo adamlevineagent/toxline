@@ -188,6 +188,9 @@ class BaseIngress:
     def list_threads(self, q=""):
         return []
 
+    def archive_thread(self, thread_id):
+        return False
+
     def open_thread(self, thread_id):
         return {"ok": False, "note": "this ingress has no thread UI"}
 

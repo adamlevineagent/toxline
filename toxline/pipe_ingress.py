@@ -295,6 +295,14 @@ class DesktopIngress(CodexIngress):
     def busy(self, thread_id):
         return False
 
+    def archive_thread(self, thread_id):
+        """Archive a thread in Codex Desktop (it can be unarchived there; nothing is erased)."""
+        if not self.pipe():
+            return False
+        r = self._tool("set_thread_archived", {"threadId": thread_id, "archived": True},
+                       self.j.get("home_thread") or thread_id)
+        return bool(isinstance(r, dict) and r.get("archived"))
+
     def open_thread(self, thread_id):
         os.startfile(f"codex://threads/{thread_id}")
         return {"ok": True, "note": "Opened in Codex"}

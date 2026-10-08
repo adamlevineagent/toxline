@@ -665,17 +665,30 @@ class Service:
         raise HttpError(404, "no such request")
 
     def delete_guest(self, cid):
+        """Forget a contact completely: Tox friendship, chat history, and their own Codex thread
+        (archived in Codex, not erased). If they add you again they arrive as someone new."""
         c = self.j.contact(cid)
         if not c:
             raise HttpError(404, "no such guest")
-        if c["status"] != "archived":
-            raise HttpError(409, "archive the guest before deleting them")
         try:
             self.transport_for(c).remove_friend(c["public_key"])
         except Exception:
             pass
+        tid = c["thread_id"]
+        archived_thread = False
+        if tid and not self.ingress.is_public_thread(tid) and \
+                not [o for o in self.j.contacts_by_thread(tid, include_archived=True) if o["id"] != cid]:
+            try:
+                archived_thread = bool(self.ingress.archive_thread(tid))
+            except Exception as e:
+                log("couldn't archive the thread of", cid, e)
         self.j.delete_contact(cid)
-        return {"ok": True}
+        if c["public_key"] in self.requests:   # a waiting request from them is now a fresh one
+            self.requests[c["public_key"]] = dict(self.requests[c["public_key"]], returning=None, role=None, thread_id=None)
+        if self.ingress.is_public_thread(tid):
+            note = f"[Toxline] {c['name']} (id {c['id']}) was removed. Don't message them from here."
+            threading.Thread(target=self.ingress.submit, args=(tid, note), daemon=True).start()
+        return {"ok": True, "thread_archived": archived_thread}
 
     def _send_brief(self, c, thread_id):
         """Tell an existing thread it now talks to this guest and how to reply."""

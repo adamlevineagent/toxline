@@ -16,6 +16,7 @@ The viewer's everyday controls, as commands. Contacts can be named by id or by n
   python toxctl.py discard MSG                drop a held message
   python toxctl.py hold NAME on|off           hold every outgoing message for review
   python toxctl.py pause|resume|archive|unarchive NAME
+  python toxctl.py delete NAME                forget them entirely (friendship, history; their own thread is archived)
   python toxctl.py notes NAME "text"          what the agent knows about them (or the mission)
   python toxctl.py role NAME person|agent|consult    who's on the other end
   python toxctl.py rename NAME "New name"
@@ -379,6 +380,15 @@ def cmd_settings(a):
     out(cfg, a, lambda cfg: [print(f"{k} = {v}") for k, v in cfg.items()])
 
 
+def cmd_delete(a):
+    c = find(state(), a.name)
+    if not a.yes:
+        sys.exit(f"toxctl: this forgets {c['name']} entirely (Tox friendship, chat history; their own Codex "
+                 f"thread is archived). Run again with --yes to confirm.")
+    r = call("POST", f"/api/contacts/{c['id']}/delete")
+    print(f"Deleted {c['name']}." + (" Their Codex thread was archived." if r.get("thread_archived") else ""))
+
+
 def cmd_redeliver(a):
     m = call("POST", f"/api/messages/{a.msg}/redeliver")
     print(f"{m['id']}: {m['state']}")
@@ -472,6 +482,7 @@ def main(argv=None):
     sp = p("role", lambda a: update(a, role=a.role), "change who's on the other end", False)
     sp.add_argument("name"); sp.add_argument("role", choices=list(ROLES))
     sp = p("rename", lambda a: update(a, name=a.new), "rename a contact", False); sp.add_argument("name"); sp.add_argument("new")
+    sp = p("delete", cmd_delete, "forget a contact entirely", False); sp.add_argument("name"); sp.add_argument("--yes", action="store_true")
     sp = p("redeliver", cmd_redeliver, "retry delivering an incoming message", False); sp.add_argument("msg")
     sp = p("dismiss", cmd_dismiss, "ignore a pending friend request", False); sp.add_argument("request")
     sp = p("tier", cmd_tier, "move a contact between the public agent and the deep tier", False)
