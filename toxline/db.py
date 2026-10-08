@@ -147,7 +147,7 @@ class Journal:
 
     # --- contacts ----------------------------------------------------------
     def contacts(self, include_archived=False):
-        q = "select * from contacts" + ("" if include_archived else " where status != 'archived'")
+        q = "select * from contacts" + ("" if include_archived else " where status not in ('archived','blocked')")
         return [dict(r) for r in self._conn().execute(q + " order by created_at")]
 
     def contact(self, cid):
@@ -159,7 +159,7 @@ class Journal:
         return dict(r) if r else None
 
     def contacts_by_thread(self, thread_id, include_archived=False):
-        q = "select * from contacts where thread_id=?" + ("" if include_archived else " and status != 'archived'")
+        q = "select * from contacts where thread_id=?" + ("" if include_archived else " and status not in ('archived','blocked')")
         return [dict(r) for r in self._conn().execute(q + " order by created_at", (thread_id,))]
 
     def contact_by_thread(self, thread_id):

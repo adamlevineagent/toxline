@@ -136,6 +136,9 @@ explicitly wants to say something themselves.
   `toxctl settings auto_accept=on` sends every stranger's friend request straight there (ask first).
 - The public agent's learned-answers file is in `toxctl settings` (`learned_file`; empty means
   `state\learned-answers.md` in the Toxline folder). Read it when the user asks what people keep asking.
+- `toxctl block NAME` / `unblock NAME`: cut someone off (nothing reaches the agent, requests ignored) or
+  undo it. The agent can block spammers itself; those blocks show in `toxctl asks` with its reason.
+  Review them with the user and unblock if it was a misjudgement.
 - `toxctl hold NAME on|off`: review every reply to that contact before it goes out.
 - `toxctl pause NAME` / `resume NAME`: stop delivering their messages to the agent for a while
   (they're kept).

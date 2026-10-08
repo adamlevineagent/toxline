@@ -172,6 +172,8 @@ class Service:
                 try:
                     if r.get("op") == "who":
                         out = self.whoami(r.get("thread_id", ""), 15)
+                    elif r.get("op") == "block":
+                        out = self.block(r.get("thread_id"), r.get("to"), r.get("body", ""))
                     elif r.get("op") == "owner":
                         out = self.owner_request(r.get("thread_id"), r.get("body", ""), r.get("to"))
                     else:
@@ -214,7 +216,7 @@ class Service:
 
     def _record_incoming(self, transport, pk, text):
         c = self.j.contact_by_key(pk)
-        if not c or c["status"] == "archived":
+        if not c or c["status"] in ("archived", "blocked"):
             self.j.event("stranger_message", None, public_key=pk, body=text)
             log("message from unknown key", pk[:12])
             return
@@ -461,6 +463,9 @@ class Service:
 
     def _friend_request(self, transport, pk, greeting):
         c = self.j.contact_by_key(pk)
+        if c and c["status"] == "blocked":
+            self.j.event("blocked_request", c["id"])   # ignored: no request, no auto-accept
+            return
         if c and c["status"] != "archived":
             transport.accept_request(pk)
             log("auto-accepted friend request from known guest", c["id"])
@@ -630,7 +635,7 @@ class Service:
         if not (body or "").strip():
             raise HttpError(400, "empty request")
         on_thread = self.j.contacts_by_thread(thread_id or "")
-        if not on_thread:
+        if not on_thread and not self.j.contacts_by_thread(thread_id or "", include_archived=True):
             raise HttpError(404, f"no contact is bound to thread {thread_id}")
         c = None
         if to and "," not in to and to.strip().lower() != "all":
@@ -716,14 +721,14 @@ class Service:
 
     def set_status(self, cid, status):
         c = self.j.contact(cid)
-        if status not in ("active", "paused", "archived"):
+        if status not in ("active", "paused", "archived", "blocked"):
             raise HttpError(400, "bad status")
         before = self.j.contact(cid)
         if not before:
             raise HttpError(404, "no such guest")
         c = self.j.update_contact(cid, status=status)
         if status == "active":
-            if before["status"] == "archived":
+            if before["status"] in ("archived", "blocked"):
                 self._befriend(c)       # archiving removed the Tox friendship; restore it
             for m in self.j.messages(cid):
                 if m["direction"] == "in" and m["state"] == "pending":
@@ -731,11 +736,32 @@ class Service:
                 # Replies held only because the bridge was paused go out now.
                 if m["direction"] == "out" and m["state"] == "held" and                         m["detail"] == "held: bridge paused" and not c["hold_outgoing"]:
                     self.release(m["id"])
-        if status == "archived":
+        if status in ("archived", "blocked"):
             if c["kind"] == "tox" and self.tox:
                 self.tox.remove_friend(c["public_key"])
+            self.requests.pop(c["public_key"], None)
             c = self.j.update_contact(cid, online="none")
         return c
+
+    def block(self, thread_id, to, reason):
+        """The agent ends a conversation that's spam or abuse. Nothing from them reaches the agent
+        again (so it costs nothing), their friend requests are ignored, and the owner is told why."""
+        guests = self.recipients(thread_id, to)
+        if len(guests) != 1:
+            raise HttpError(400, "block one guest at a time, by id")
+        c = guests[0]
+        reason = (reason or "").strip() or "no reason given"
+        self.set_status(c["id"], "blocked")
+        self.j.update_contact(c["id"], notes=((c.get("notes") or "") + f"\nBlocked by the agent: {reason}").strip())
+        r = self.owner_request(thread_id, f"Blocked {c['name']}: {reason}", None)
+        with self._asks_lock:
+            reqs = self.j.get("owner_requests", [])
+            for x in reqs:
+                if x["id"] == r["id"]:
+                    x.update(contact_id=c["id"], name=c["name"], kind="blocked")
+            self.j.put("owner_requests", reqs)
+        log("agent blocked", c["id"], reason[:80])
+        return {"ok": True, "blocked": c["id"], "name": c["name"]}
 
     def simulate(self, cid, body):
         c = self.j.contact(cid)
@@ -939,6 +965,12 @@ def build_app(svc):
             os.startfile(str(p))
             return {"ok": True, "note": "Opened the learned-answers file"}
         return {"ok": False, "note": str(p)}
+
+    @app.route("POST", "/api/block")
+    def block(body, **_):
+        if not isinstance(body, dict):
+            raise HttpError(400, "expected a JSON object")
+        return svc.block(body.get("thread_id"), body.get("to"), body.get("body") or body.get("reason", ""))
 
     @app.route("POST", "/api/owner_requests/:rid/done")
     def owner_request_done(rid, **_):

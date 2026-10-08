@@ -66,16 +66,18 @@ function needs(c) {
 }
 const isPublic = c => c.thread_id && c.thread_id === state.snap.public_thread;
 const isAgent = c => ["agent", "consult"].includes(c.role);
+const live = c => c.status !== "archived" && c.status !== "blocked";
 // "deep" only means something next to someone who isn't: hide it while everyone is deep.
 const showDeep = () => state.snap.tiers && state.snap.contacts.some(c => c.status !== "archived" && (isPublic(c) || c.tier !== "deep"));
 const FILTERS = [
-  ["all", "All", c => c.status !== "archived"],
-  ["needs", "Needs you", c => c.status !== "archived" && needs(c).any],
-  ["public", "Public agent", c => c.status !== "archived" && isPublic(c)],
-  ["deep", "Deep", c => showDeep() && c.status !== "archived" && !isPublic(c) && c.tier === "deep"],
-  ["agents", "Agents", c => c.status !== "archived" && isAgent(c)],
-  ["people", "People", c => c.status !== "archived" && !isAgent(c)],
+  ["all", "All", c => live(c)],
+  ["needs", "Needs you", c => live(c) && needs(c).any],
+  ["public", "Public agent", c => live(c) && isPublic(c)],
+  ["deep", "Deep", c => showDeep() && live(c) && !isPublic(c) && c.tier === "deep"],
+  ["agents", "Agents", c => live(c) && isAgent(c)],
+  ["people", "People", c => live(c) && !isAgent(c)],
   ["archived", "Archived", c => c.status === "archived"],
+  ["blocked", "Blocked", c => c.status === "blocked"],
 ];
 
 // Friend requests are the one thing you act on from anywhere: keep them in the sidebar.
@@ -111,7 +113,7 @@ function renderChips() {
   const el = $("#chips"), cs = state.snap.contacts;
   const counts = Object.fromEntries(FILTERS.map(([k, , fn]) => [k, cs.filter(fn).length]));
   // A short list needs no filters; they appear once there's something to sort through.
-  const show = cs.length > 6 || counts.archived > 0 || counts.needs > 0;
+  const show = cs.length > 6 || counts.archived > 0 || counts.blocked > 0 || counts.needs > 0;
   el.hidden = !show;
   if (!show) { state.view = "all"; return; }
   if (!counts[state.view] && state.view !== "all") state.view = "all";
@@ -135,7 +137,7 @@ function contactRow(c) {
   const prefix = last ? (last.direction === "out" ? "Agent: " : "") : "";
   const dotCls = c.status === "paused" ? "paused" : (c.kind === "test" ? "udp" : c.online);
   const flags = [c.kind === "test" ? "test" : "", ROLE_BADGE[c.role] || "", isPublic(c) ? "public" : (showDeep() && c.tier === "deep" ? "deep" : ""),
-    c.hold_outgoing ? "hold" : "", c.status === "paused" ? "paused" : ""].filter(Boolean);
+    c.hold_outgoing ? "hold" : "", c.status === "paused" ? "paused" : "", c.status === "blocked" ? "blocked" : ""].filter(Boolean);
   const attn = n.asks ? "asks for you" : n.held ? `${n.held} held` : n.stuck ? "stuck" : "";
   a.innerHTML = `<div class="avatar" style="background:${color(c.id)}">${esc(initials(c.name))}<span class="dot ${dotCls}"></span></div>
     <div style="min-width:0"><div class="name"><span>${esc(c.name)}</span>${flags.map(f => `<span class="badge ${f === "hold" ? "held" : ""}">${f}</span>`).join("")}</div>
@@ -149,7 +151,7 @@ function renderContacts() {
   nav.innerHTML = "";
   const q = state.filter.toLowerCase();
   const fn = (FILTERS.find(([k]) => k === state.view) || FILTERS[0])[2];
-  const list = state.snap.contacts.filter(c => (q ? c.status !== "archived" || state.view === "archived" : fn(c)) &&
+  const list = state.snap.contacts.filter(c => (q ? live(c) || ["archived", "blocked"].includes(state.view) : fn(c)) &&
     (!q || `${c.name} ${c.id} ${c.tox_name || ""} ${c.notes}`.toLowerCase().includes(q)));
   nav.classList.toggle("compact", list.length > 25);
   // Long lists get sections; a handful of contacts reads best as one list.
@@ -187,8 +189,14 @@ function renderOverview() {
 
   // Needs you: everything waiting on the owner, newest first.
   const items = [];
-  for (const r of s.owner_requests || []) items.push({ at: r.at, html: `<b>${esc(r.name || "Someone")}</b> <span class="hint">asks for you · ${ago(r.at)}</span><div>${esc(r.body)}</div>`,
-    actions: [r.contact_id && ["Open chat", () => (location.hash = r.contact_id)], ["Done", () => api("POST", `/api/owner_requests/${r.id}/done`).then(refresh), "primary"]] });
+  for (const r of s.owner_requests || []) {
+    const blocked = r.kind === "blocked";
+    items.push({ at: r.at, html: `<b>${esc(r.name || "Someone")}</b> <span class="hint">${blocked ? "blocked by your agent" : "asks for you"} · ${ago(r.at)}</span><div>${esc(r.body)}</div>`,
+      actions: [r.contact_id && ["Open chat", () => (location.hash = r.contact_id)],
+        blocked && r.contact_id && ["Unblock", () => api("POST", `/api/contacts/${r.contact_id}/update`, { status: "active" })
+          .then(() => api("POST", `/api/owner_requests/${r.id}/done`)).then(refresh)],
+        [blocked ? "OK" : "Done", () => api("POST", `/api/owner_requests/${r.id}/done`).then(refresh), "primary"]] });
+  }
   for (const c of cs) {
     if (c.held) items.push({ at: c.last?.created_at || 0, html: `<b>${esc(c.name)}</b> <span class="hint">${c.held} repl${c.held > 1 ? "ies" : "y"} held for you</span>`, actions: [["Review", () => (location.hash = c.id), "primary"]] });
     if (c.stuck) items.push({ at: c.last?.created_at || 0, html: `<b>${esc(c.name)}</b> <span class="hint">${c.stuck} message${c.stuck > 1 ? "s" : ""} stuck (not delivered)</span>`, actions: [["Open", () => (location.hash = c.id)]] });
@@ -259,6 +267,7 @@ function renderHead() {
   if (!c.thread_id) msgs.push("This guest has no agent thread. Open ⋯ to bind one; their messages are being kept until then.");
   if (c.status === "paused") msgs.push("Bridge paused: their messages are kept but not delivered to the agent, and the agent's replies are held. Resume from ⋯.");
   if (c.hold_outgoing) msgs.push(`Outgoing on hold. The agent's replies wait here for you${held ? ` (${held} waiting)` : ""}.`);
+  if (c.status === "blocked") msgs.push("Blocked: nothing they send reaches the agent and their friend requests are ignored. Unblock from ⋯.");
   if (c.status === "archived") msgs.push("Archived: they're no longer a Tox friend and nothing reaches the agent. Unarchive from ⋯.");
   for (const r of (state.snap.owner_requests || []).filter(r => r.contact_id === c.id)) msgs.push(`Your agent flagged this for you: ${r.body}  (Mark it done from the overview once handled.)`);
   if (c.budget && c.budget.used >= c.budget.limit) msgs.push(`Agent conversation paused: your agent has sent its ${c.budget.limit} messages. Its next replies are held here; Send now on one to allow ${c.budget.limit} more.`);
@@ -567,9 +576,9 @@ $("#btn-more").onclick = async () => {
   f.elements.role.value = c.role || "person";
   f.elements.tier.value = c.tier || "story";
   $("#btn-pause").textContent = c.status === "paused" ? "Resume" : "Pause";
-  $("#btn-archive").textContent = c.status === "archived" ? "Unarchive" : "Archive";
+  $("#btn-archive").textContent = c.status === "archived" ? "Unarchive" : c.status === "blocked" ? "Unblock" : "Archive";
   $("#btn-delete").hidden = false;
-  $("#btn-pause").hidden = c.status === "archived";
+  $("#btn-pause").hidden = c.status === "archived" || c.status === "blocked";
   await fillThreads(f.elements.thread, c.thread_id);
   $("#dlg-more").showModal();
 };
@@ -580,6 +589,11 @@ $("#btn-pause").onclick = async () => {
 };
 $("#btn-archive").onclick = async () => {
   const c = contact();
+  if (c.status === "blocked") {
+    try { await api("POST", `/api/contacts/${c.id}/update`, { status: "active" }); $("#dlg-more").close(); refresh(); }
+    catch (e) { $("#more-error").textContent = e.message; }
+    return;
+  }
   if (c.status !== "archived" && !(await ask(`Archive ${c.name}?`, "Their Tox friendship is removed and nothing reaches the agent. History stays; you can unarchive later.", "Archive"))) return;
   try { await api("POST", `/api/contacts/${c.id}/update`, { status: c.status === "archived" ? "active" : "archived" }); $("#dlg-more").close(); refresh(); }
   catch (e) { $("#more-error").textContent = e.message; }

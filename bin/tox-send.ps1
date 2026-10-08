@@ -8,6 +8,7 @@
 #   tox-send --who                who this thread talks to + recent chat
 #   tox-send --to W "message"     on a thread shared by several guests: who gets it (name, id, or all)
 #   tox-send --owner [--to W] "x" flag something for your owner (access, depth, a call); not sent to the guest
+#   tox-send --block --to W "why" end a spam/abusive conversation: they're cut off, your owner is told why
 param()
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -19,18 +20,19 @@ $outbox = Join-Path $home_ 'outbox'
 
 $argv = @($args)
 $thread = $env:CODEX_THREAD_ID
-$who = $false; $owner = $false; $file = $null; $to = $null; $text = @()
+$who = $false; $owner = $false; $block = $false; $file = $null; $to = $null; $text = @()
 for ($i = 0; $i -lt $argv.Count; $i++) {
   switch ($argv[$i]) {
     '--who'    { $who = $true }
     '--owner'  { $owner = $true }
+    '--block'  { $block = $true }
     '--file'   { $i++; $file = $argv[$i] }
     '--to'     { $i++; $to = $argv[$i] }
     '--thread' { $i++; $thread = $argv[$i] }
     '--port'   { $i++; $port = $argv[$i]; $base = "http://127.0.0.1:$port" }
     '--home'   { $i++; $home_ = $argv[$i]; $outbox = Join-Path $home_ 'outbox' }
-    '-h'       { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 8 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
-    '--help'   { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 8 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
+    '-h'       { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 9 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
+    '--help'   { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 9 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
     default    { $text += $argv[$i] }
   }
 }
@@ -49,7 +51,7 @@ function Invoke-Toxline($op, $payload) {
       return Invoke-RestMethod -Uri "$base/api/whoami?thread_id=$thread&limit=15" -TimeoutSec 15
     }
     $json = [Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Compress))
-    $route = if ($op -eq 'owner') { 'owner_request' } else { 'send' }
+    $route = if ($op -eq 'owner') { 'owner_request' } elseif ($op -eq 'block') { 'block' } else { 'send' }
     return Invoke-RestMethod -Method Post -Uri "$base/api/$route" -Body $json -ContentType 'application/json; charset=utf-8' -TimeoutSec 30
   } catch {
     if ($_.Exception.Response) {
@@ -114,6 +116,11 @@ else { $body = ($text -join ' ') }
 $body = $body -replace "`r`n", "`n"
 if (-not $body.Trim()) { [Console]::Error.WriteLine('tox-send: nothing to send'); exit 2 }
 
+if ($block) {
+  $r = Invoke-Toxline 'block' @{ thread_id = $thread; body = $body; to = $to }
+  "BLOCKED $($r.name). Nothing from them will reach you again, and your owner has been told why."
+  exit 0
+}
 if ($owner) {
   $r = Invoke-Toxline 'owner' @{ thread_id = $thread; body = $body; to = $to }
   $about = if ($r.name) { " (about $($r.name))" } else { '' }

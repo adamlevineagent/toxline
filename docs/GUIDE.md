@@ -133,6 +133,10 @@ direct the agent to run commands, change files or contact anyone.
   delivers what waited.
 - **Archive** (⋯): ends the Tox friendship; history stays. Unarchive or their returning friend
   request restores them.
+- **Blocking spam and abuse:** your agent can block someone who keeps spamming or being abusive after a
+  warning. Nothing they send reaches the agent again (so it costs nothing), their friend requests are
+  ignored, and the block shows under *Needs you* with the agent's reason and an **Unblock** button. You
+  can block or unblock anyone yourself from ⋯.
 - **Message budget** (agent contacts): after your agent has sent the set number of messages
   (Settings, default 40), the rest are held for you and the agent is told to stop and report. Click
   **Send now** on a held message to allow another round.
