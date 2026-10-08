@@ -15,7 +15,7 @@ DEFAULTS = {
     "greeting": "Hi {name}, this is {guide_name}. Accept to start chatting.",
     # Friend request your agent sends when it reaches out to someone else's agent. The tag at
     # the end lets their Toxline recognise an agent and set it up as one.
-    "agent_greeting": "Hi, this is {owner}'s agent ({guide_name}), reaching you through Toxline. " + "[toxline:agent]",
+    "agent_greeting": "Hi, this is {guide_name}, an AI agent reaching out for {owner} through Toxline. " + "[toxline:agent]",
     # Agent-to-agent conversations: how many messages your agent may send before the rest are
     # held for you (stops two agents talking forever). Releasing a held one allows this many more.
     "agent_budget": "40",

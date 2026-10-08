@@ -67,7 +67,8 @@ bridge between Tox and Codex threads.
      sidebar with **Set up guest**.
 
    Each contact gets its own Codex thread, seeded with a brief from Settings (or bind a thread you
-   set up yourself). Their messages arrive there as `[Tox message from <name>]` blocks, and the
+   set up yourself). Toxline also keeps one small "Toxline service" thread in Codex for itself;
+   leave it be. Their messages arrive there as `[Tox message from <name>]` blocks, and the
    viewer shows the chat exactly as they see it.
 
 Optional: `Install-Autostart.cmd` starts toxline when you sign in (logs go to

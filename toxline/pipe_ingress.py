@@ -248,8 +248,9 @@ class DesktopIngress(CodexIngress):
         proj = next((p for p in projects if here.startswith(p["path"].lower().rstrip("\\") + "\\")), None)
         args = {"title": "Toxline service",
                 "prompt": "This thread exists so Toxline can watch guest threads. Nothing to do here; reply with one word: ok."}
-        if proj:
-            args["target"] = {"type": "project", "projectId": proj["projectId"], "environment": {"type": "local"}}
+        # Desktop requires a target; a toxline folder that isn't a Codex project gets a projectless thread.
+        args["target"] = ({"type": "project", "projectId": proj["projectId"], "environment": {"type": "local"}}
+                          if proj else {"type": "projectless", "directoryName": "toxline-service"})
         hid = self._tool("create_thread", args, any_thread)["threadId"]
         self.j.put("home_thread", hid)
         return hid
@@ -260,7 +261,7 @@ class DesktopIngress(CodexIngress):
             cursors = {}
             while True:
                 threads = [t for t in get_threads() if t][:8]
-                if not threads or not self.pipe():
+                if not self.pipe() or not threads:   # probing first keeps the viewer's status current
                     time.sleep(5)
                     continue
                 try:
