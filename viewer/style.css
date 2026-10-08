@@ -201,3 +201,7 @@ dialog details summary { cursor: pointer; }
   .head-actions .switch span, #btn-hold { font-size: 12px; }
   .msg { max-width: 88%; }
 }
+.roles { border: 1px solid var(--line, #8883); border-radius: 8px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 6px; }
+.roles legend { padding: 0 4px; color: var(--muted); font-size: 12.5px; }
+.roles label { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; color: var(--text); }
+.roles .hint { font-size: 12px; }

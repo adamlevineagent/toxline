@@ -82,6 +82,15 @@ class Journal:
             if "shown_at" not in cols:
                 # When the guest could first see the message: arrival for theirs, Tox send for ours.
                 c.execute("alter table messages add column shown_at real")
+            cols = {r[1] for r in c.execute("pragma table_info(contacts)")}
+            if "role" not in cols:
+                # Who is on the other end: person (a human guest), agent (someone's agent asking
+                # ours), consult (an agent ours questions on the owner's behalf).
+                c.execute("alter table contacts add column role text not null default 'person'")
+            cols = {r[1] for r in c.execute("pragma table_info(messages)")}
+            if "origin" not in cols:
+                # Who wrote an outbound message: agent (tox-send) or owner (viewer/API).
+                c.execute("alter table messages add column origin text not null default 'agent'")
 
     def _conn(self):
         c = getattr(self._local, "c", None)
@@ -151,12 +160,12 @@ class Journal:
         r = self._conn().execute("select * from contacts where thread_id=?", (thread_id,)).fetchone()
         return dict(r) if r else None
 
-    def add_contact(self, cid, name, public_key, tox_id=None, notes="", kind="tox"):
+    def add_contact(self, cid, name, public_key, tox_id=None, notes="", kind="tox", role="person"):
         now = time.time()
         with self._lock:
             self._conn().execute(
-                "insert into contacts(id,name,public_key,tox_id,kind,notes,created_at,updated_at) values (?,?,?,?,?,?,?,?)",
-                (cid, name, public_key.upper(), tox_id.upper() if tox_id else None, kind, notes, now, now))
+                "insert into contacts(id,name,public_key,tox_id,kind,notes,role,created_at,updated_at) values (?,?,?,?,?,?,?,?,?)",
+                (cid, name, public_key.upper(), tox_id.upper() if tox_id else None, kind, notes, role, now, now))
         self.event("contact_added", cid, name=name)
         return self.contact(cid)
 
@@ -177,13 +186,14 @@ class Journal:
         self.event("contact_deleted", cid)
 
     # --- messages ----------------------------------------------------------
-    def add_message(self, contact_id, direction, body, state, thread_id=None, detail=""):
+    def add_message(self, contact_id, direction, body, state, thread_id=None, detail="", origin="agent"):
         mid = uuid.uuid4().hex[:12]
         now = time.time()
         with self._lock:
             self._conn().execute(
-                "insert into messages(id,contact_id,direction,body,created_at,state,detail,thread_id,shown_at) values (?,?,?,?,?,?,?,?,?)",
-                (mid, contact_id, direction, body, now, state, detail, thread_id, now if direction == "in" else None))
+                "insert into messages(id,contact_id,direction,body,created_at,state,detail,thread_id,shown_at,origin) values (?,?,?,?,?,?,?,?,?,?)",
+                (mid, contact_id, direction, body, now, state, detail, thread_id, now if direction == "in" else None,
+                 "owner" if origin == "owner" else "agent"))
         self.event("message", contact_id, id=mid, direction=direction, state=state)
         return self.message(mid)
 
@@ -211,6 +221,14 @@ class Journal:
             "order by coalesce(shown_at, created_at) desc limit ?) order by coalesce(shown_at, created_at)",
             (contact_id, limit))
         return [_msg(r) for r in rows]
+
+    def count_out_since(self, contact_id, since):
+        """The agent's messages to a contact since a time that went out or are on their way."""
+        r = self._conn().execute(
+            "select count(*) from messages where contact_id=? and direction='out' and created_at>? "
+            "and origin='agent' and state in ('sending','sent','delivered','offline_queued')",
+            (contact_id, since)).fetchone()
+        return r[0]
 
     def messages_in_state(self, direction, states):
         q = f"select * from messages where direction=? and state in ({','.join('?' * len(states))}) order by created_at"

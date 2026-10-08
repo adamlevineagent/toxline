@@ -13,7 +13,22 @@ DEFAULTS = {
     "topic": "",                          # what guests come to learn about (optional)
     "library_map": "",                    # a file the agents should start from when researching
     "greeting": "Hi {name}, this is {guide_name}. Accept to start chatting.",
+    # Friend request your agent sends when it reaches out to someone else's agent. The tag at
+    # the end lets their Toxline recognise an agent and set it up as one.
+    "agent_greeting": "Hi, this is {owner}'s agent ({guide_name}), reaching you through Toxline. " + "[toxline:agent]",
+    # Agent-to-agent conversations: how many messages your agent may send before the rest are
+    # held for you (stops two agents talking forever). Releasing a held one allows this many more.
+    "agent_budget": "40",
 }
+
+AGENT_TAG = "[toxline:agent]"
+
+
+def agent_budget():
+    try:
+        return max(1, int(load()["agent_budget"]))
+    except (TypeError, ValueError):
+        return int(DEFAULTS["agent_budget"])
 
 
 def path():

@@ -70,7 +70,7 @@ class LoopbackTransport(Transport):
     def friend_online(self, pk):
         return pk.upper() in self.friends
 
-    def send(self, pk, text):
+    def send(self, pk, text, exact=False):
         ids = [next(self._ids)]
         # Simulated client acknowledges shortly after, like a real read receipt.
         threading.Timer(0.3, lambda: [self.on_receipt(pk, i) for i in ids]).start()

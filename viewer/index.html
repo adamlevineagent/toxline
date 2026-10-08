@@ -72,6 +72,12 @@
     <h2 id="new-title">Invite a guest</h2>
     <p class="hint">They chat from their own Tox client; the Codex thread you pick answers them.</p>
     <label>Name<input name="name" required placeholder="e.g. W" autocomplete="off"></label>
+    <fieldset class="roles">
+      <legend>Who's on the other end?</legend>
+      <label><input type="radio" name="role" value="person" checked> <b>A person</b> <span class="hint">chatting from their Tox app; your agent answers</span></label>
+      <label><input type="radio" name="role" value="agent"> <b>Someone's agent</b> <span class="hint">their agent asks, yours answers in depth</span></label>
+      <label><input type="radio" name="role" value="consult"> <b>An agent to question</b> <span class="hint">your agent asks it things on your behalf, then reports to you</span></label>
+    </fieldset>
     <div class="seg" role="radiogroup">
       <label><input type="radio" name="kind" value="tox" checked> Real Tox contact</label>
       <label><input type="radio" name="kind" value="test"> Test guest (you play them)</label>
@@ -79,13 +85,13 @@
     <label class="tox-only">Their Tox ID<textarea name="tox_id" rows="2" placeholder="76 hex characters from THEIR client (qTox: click their own name/avatar at top-left → Tox ID → Copy)" spellcheck="false"></textarea></label>
     <p class="hint tox-only not-request">Or skip this: give them the agent's Tox ID (top-left here) and their friend request appears in the sidebar with a one-click setup.</p>
     <label class="tox-only not-request">Friend request message<input name="greeting" placeholder="Leave empty to use the greeting from Settings"></label>
-    <label class="not-returning">About them (the agent sees this)<textarea name="notes" rows="3" placeholder="Who they are, what they care about, how deep to go…"></textarea></label>
-    <label>Their Codex thread (the agent that answers them)
+    <label class="not-returning"><span id="notes-label">About them (the agent sees this)</span><textarea name="notes" rows="3" placeholder="Who they are, what they care about, how deep to go…"></textarea></label>
+    <label>Their Codex thread: a new one by default, or one you've set up
       <select name="thread" required></select>
     </label>
     <label>…or paste a thread ID / Codex link<input name="thread_paste" placeholder="e.g. 019a1b2c-… or codex://threads/…" autocomplete="off" spellcheck="false"></label>
     <p class="hint warn" id="share-note" hidden></p>
-    <p class="hint">Toxline posts a short note into that thread telling the agent who it's talking to and how to reply.</p>
+    <p class="hint">A new thread starts in Codex Desktop as “Tox · name”, seeded with the brief from Settings. An existing thread gets a short note about who it's talking to and how to reply.</p>
     <p class="error" id="new-error"></p>
     <menu><button value="cancel" formnovalidate class="ghost">Cancel</button><button value="ok" class="primary" id="new-ok">Create</button></menu>
   </form>
@@ -95,7 +101,10 @@
   <form method="dialog" id="form-more">
     <h2 id="more-title">Guest</h2>
     <dl class="facts" id="more-facts"></dl>
-    <label>About them (the agent sees this in new threads)<textarea name="notes" rows="3"></textarea></label>
+    <label>Who's on the other end
+      <select name="role"><option value="person">A person</option><option value="agent">Someone's agent (asks, yours answers)</option><option value="consult">An agent your agent questions</option></select>
+    </label>
+    <label>About them / mission (the agent sees this in new threads)<textarea name="notes" rows="3"></textarea></label>
     <label>Bound agent thread
       <select name="thread"></select>
     </label>
@@ -122,9 +131,13 @@
     </div>
     <label>Reference map for agents (a file they start research from; optional)<input name="library_map" spellcheck="false"></label>
     <label>Friend-request greeting ({name} = the guest)<input name="greeting" maxlength="900"></label>
+    <div class="grid2">
+      <label>Greeting when your agent reaches out to an agent<input name="agent_greeting" maxlength="900"></label>
+      <label>Agent conversations: messages before holding for you<input name="agent_budget" inputmode="numeric" pattern="[0-9]+" maxlength="4"></label>
+    </div>
     <details><summary class="hint">Brief for threads Toxline creates itself (threads you set up keep your own instructions)</summary>
       <textarea name="persona" rows="14" spellcheck="false"></textarea>
-      <p class="hint">Placeholders: {owner} {guide_name} {topic_clause} {library_clause} {tox_send} {about}</p>
+      <p class="hint">Placeholders: {owner} {guide_name} {topic_clause} {library_clause} {tox_send} {about} {drafts}</p>
     </details>
     <menu><button value="cancel" formnovalidate class="ghost">Close</button><button value="ok" class="primary">Save</button></menu>
   </form>

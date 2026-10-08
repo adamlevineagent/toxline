@@ -62,7 +62,13 @@ def _errname(table, code):
 
 # ---------------------------------------------------------------- library load
 def load_library(path: Optional[str] = None) -> ctypes.CDLL:
-    path = path or os.environ.get("TOXCORE_DLL") or str(BIN_DIR / "toxcore.dll")
+    path = path or os.environ.get("TOXCORE_DLL")
+    if not path:
+        if sys.platform == "win32":
+            path = str(BIN_DIR / "toxcore.dll")
+        else:   # Linux/macOS: the distro's libtoxcore (e.g. `pacman -S toxcore`, `apt install libtoxcore2`)
+            from ctypes import util as ctypes_util
+            path = ctypes_util.find_library("toxcore") or "libtoxcore.so"
     d = os.path.dirname(os.path.abspath(path))
     if sys.platform == "win32":
         os.add_dll_directory(d)

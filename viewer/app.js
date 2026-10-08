@@ -35,6 +35,8 @@ function ago(t) {
   if (s < 60) return "now"; if (s < 3600) return Math.floor(s / 60) + "m";
   if (s < 86400) return Math.floor(s / 3600) + "h"; return Math.floor(s / 86400) + "d";
 }
+const ROLE_BADGE = { agent: "agent", consult: "agent" };
+const ROLE_NOTE = { agent: "someone's agent: it asks, yours answers", consult: "an agent yours is questioning for you" };
 function onlineText(c) {
   if (c.kind === "test") return "Test guest (simulated)";
   return { udp: "Online", tcp: "Online (relayed)", none: "Offline" }[c.online] || c.online;
@@ -55,14 +57,14 @@ function renderRequests() {
   for (const r of state.snap.requests) {
     const d = document.createElement("div");
     d.className = "request";
-    d.innerHTML = `<b>${r.returning ? `${esc(r.returning)} is back (archived guest)` : "Friend request"}</b> <span class="hint">${ago(r.at)}</span><div>${esc(r.greeting || "(no message)")}</div>
+    d.innerHTML = `<b>${r.returning ? `${esc(r.returning)} is back (archived guest)` : r.agent ? "Friend request from an agent" : "Friend request"}</b> <span class="hint">${ago(r.at)}</span><div>${esc(r.greeting || "(no message)")}</div>
       <code>${r.public_key.slice(0, 16)}…</code>
       <div class="row"><button class="primary">Set up guest</button><button class="ghost">Dismiss</button></div>`;
     const [setup, dismiss] = d.querySelectorAll("button");
     if (r.returning) setup.textContent = "Restore guest";
     setup.onclick = () => openNew(r.returning
-      ? { tox_id: r.public_key, fromRequest: true, returning: r.returning, name: r.returning, thread: r.thread_id || "" }
-      : { tox_id: r.public_key, fromRequest: true, notes: r.greeting ? `Their request said: ${r.greeting}` : "" });
+      ? { tox_id: r.public_key, fromRequest: true, returning: r.returning, name: r.returning, thread: r.thread_id || "", role: r.role || "person" }
+      : { tox_id: r.public_key, fromRequest: true, role: r.agent ? "agent" : "person", notes: r.greeting ? `Their request said: ${r.greeting}` : "" });
     dismiss.onclick = () => api("POST", `/api/requests/${r.public_key}/dismiss`).then(refresh);
     el.append(d);
   }
@@ -81,7 +83,7 @@ function renderContacts() {
     const last = c.last;
     const prefix = last ? (last.direction === "out" ? "Agent: " : "") : "";
     const dotCls = c.status === "paused" ? "paused" : (c.kind === "test" ? "udp" : c.online);
-    const flags = [c.kind === "test" ? "test" : "", c.hold_outgoing ? "hold" : "", c.status === "paused" ? "paused" : ""].filter(Boolean);
+    const flags = [c.kind === "test" ? "test" : "", ROLE_BADGE[c.role] || "", c.hold_outgoing ? "hold" : "", c.status === "paused" ? "paused" : ""].filter(Boolean);
     a.innerHTML = `<div class="avatar" style="background:${color(c.id)}">${esc(initials(c.name))}<span class="dot ${dotCls}"></span></div>
       <div style="min-width:0"><div class="name"><span>${esc(c.name)}</span>${flags.map(f => `<span class="badge ${f === "hold" ? "held" : ""}">${f}</span>`).join("")}</div>
       <div class="preview">${last ? esc(prefix + last.body.split("\n")[0]) : (c.thread_id ? "No messages yet" : "⚠ no agent thread")}</div></div>
@@ -100,7 +102,7 @@ function renderHead() {
   $("#chat-avatar").style.background = color(c.id);
   $("#chat-avatar").textContent = initials(c.name);
   $("#chat-name").textContent = c.name;
-  $("#chat-kind").textContent = c.kind === "test" ? "test" : (c.tox_name && c.tox_name !== c.name ? `Tox: ${c.tox_name}` : "");
+  $("#chat-kind").textContent = [c.kind === "test" ? "test" : (c.tox_name && c.tox_name !== c.name ? `Tox: ${c.tox_name}` : ""), ROLE_NOTE[c.role] || ""].filter(Boolean).join(" · ");
   $("#chat-dot").className = "dot " + (c.kind === "test" ? "udp" : c.online);
   const mates = state.snap.contacts.filter(o => o.id !== c.id && o.thread_id && o.thread_id === c.thread_id && o.status !== "archived").map(o => o.name);
   $("#chat-status").textContent = onlineText(c) + (c.status === "paused" ? " · bridge paused" : "") + (c.status === "archived" ? " · archived" : "") + (mates.length ? ` · shares a thread with ${mates.join(", ")}` : "");
@@ -111,10 +113,12 @@ function renderHead() {
   const banner = $("#banner");
   const held = state.messages.filter(m => m.state === "held").length;
   const msgs = [];
+  if (c.role === "consult" && c.online === "none" && c.status === "active") msgs.push("Their agent is offline (or hasn't accepted the friend request yet). Your agent's messages wait and go out when it connects.");
   if (!c.thread_id) msgs.push("This guest has no agent thread. Open ⋯ to bind one; their messages are being kept until then.");
   if (c.status === "paused") msgs.push("Bridge paused: their messages are kept but not delivered to the agent, and the agent's replies are held. Resume from ⋯.");
   if (c.hold_outgoing) msgs.push(`Outgoing on hold. The agent's replies wait here for you${held ? ` (${held} waiting)` : ""}.`);
   if (c.status === "archived") msgs.push("Archived: they're no longer a Tox friend and nothing reaches the agent. Unarchive from ⋯.");
+  if (c.budget && c.budget.used >= c.budget.limit) msgs.push(`Agent conversation paused: your agent has sent its ${c.budget.limit} messages. Its next replies are held here; Send now on one to allow ${c.budget.limit} more.`);
   if (state.offline) msgs.unshift("Toxline service is offline. Reconnecting…");
   banner.innerHTML = msgs.map(esc).join("<br>");
   banner.hidden = !msgs.length;
@@ -176,7 +180,7 @@ function renderLog(keepScroll) {
       const [t, cls] = inboundTag(m);
       tag = `<span class="owner owner-tag ${cls === "bad" ? "bad" : ""}" style="${cls === "ok" ? "color:var(--muted)" : ""}">${t}</span>`;
     } else if (notYetVisible) {
-      tag = `<span class="owner owner-tag ${m.state === "failed" ? "bad" : ""}">${{ held: "held for you: they can't see this yet", offline_queued: "waiting for them to come online", failed: "failed: " + esc(m.detail), discarded: "discarded" }[m.state]}</span>`;
+      tag = `<span class="owner owner-tag ${m.state === "failed" ? "bad" : ""}">${{ held: /budget/.test(m.detail) ? "held: message budget used up" : "held for you: they can't see this yet", offline_queued: "waiting for them to come online", failed: "failed: " + esc(m.detail), discarded: "discarded" }[m.state]}</span>`;
     }
     let actions = "";
     if (m.state === "held") actions = `<div class="owner-block when-mine"><button data-act="release" class="primary">Send now</button><button data-act="edit">Edit & send</button><button data-act="discard" class="ghost">Discard</button></div>`;
@@ -320,7 +324,8 @@ $("#sim-send").onclick = async () => {
 };
 
 async function fillThreads(select, current) {
-  select.innerHTML = current ? "" : `<option value="" disabled selected>Choose a thread…</option>`;
+  // New guests default to a fresh thread seeded with the current brief.
+  select.innerHTML = current ? "" : `<option value="new" selected>＋ Create a new thread for them (seeded with the current brief)</option>`;
   try {
     const { threads } = await api("GET", "/api/threads");
     const bound = new Map();
@@ -334,7 +339,7 @@ async function fillThreads(select, current) {
       select.append(o);
     }
   } catch (e) { /* listing threads is optional */ }
-  const n = document.createElement("option"); n.value = "new"; n.textContent = "＋ Create a new thread for them"; select.append(n);
+  if (current) { const n = document.createElement("option"); n.value = "new"; n.textContent = "＋ Create a new thread for them"; select.append(n); }
   if (current) {
     if (![...select.options].some(o => o.value === current)) {
       const o = document.createElement("option"); o.value = current; o.textContent = current; select.append(o);
@@ -355,7 +360,16 @@ function openNew(prefill = {}) {
   $("#new-ok").textContent = prefill.returning ? "Restore" : "Create";
   f.classList.toggle("returning", !!prefill.returning);
   f.elements.thread.required = true;
-  const sync = () => { f.classList.toggle("tox-hidden", f.elements.kind.value !== "tox"); f.elements.tox_id.required = f.elements.kind.value === "tox"; };
+  const sync = () => {
+    f.classList.toggle("tox-hidden", f.elements.kind.value !== "tox"); f.elements.tox_id.required = f.elements.kind.value === "tox";
+    const consult = f.elements.role.value === "consult";
+    $("#notes-label").textContent = consult ? "What should your agent find out? (it opens with this once they accept)" : "About them (the agent sees this)";
+    f.elements.notes.placeholder = consult ? "e.g. How does their registry stop one certificate being claimed twice? Get the mechanism and sources." : "Who they are, what they care about, how deep to go…";
+    f.elements.tox_id.placeholder = f.elements.role.value !== "person"
+      ? "76 hex characters: the agent Tox ID shown at the top-left of their Toxline"
+      : "76 hex characters from THEIR client (qTox: click their own name/avatar at top-left → Tox ID → Copy)";
+    f.elements.greeting.placeholder = consult ? "Leave empty to use the agent greeting from Settings" : "Leave empty to use the greeting from Settings";
+  };
   const shareNote = () => {
     const t = f.elements.thread.value, paste = (f.elements.thread_paste.value.match(/[0-9a-f-]{36}/i) || [""])[0].toLowerCase();
     const tid = paste || t;
@@ -364,7 +378,7 @@ function openNew(prefill = {}) {
     $("#share-note").textContent = names.length ? `That thread already talks to ${names.join(", ")}. They'll share it: the agent sees everyone's messages and picks who each reply goes to. Each person only sees what's sent to them.` : "";
   };
   f.elements.thread.onchange = shareNote;
-  f.elements.kind.forEach(r => (r.onchange = sync)); sync();
+  f.elements.kind.forEach(r => (r.onchange = sync)); f.elements.role.forEach(r => (r.onchange = sync)); sync();
   f.elements.thread_paste.oninput = () => { f.elements.thread.required = !f.elements.thread_paste.value.trim(); shareNote(); };
   shareNote();
   fillThreads(f.elements.thread, prefill.thread || undefined);
@@ -401,6 +415,7 @@ $("#btn-more").onclick = async () => {
     ["Added", new Date(c.created_at * 1000).toLocaleString()],
   ].map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
   f.elements.notes.value = c.notes || "";
+  f.elements.role.value = c.role || "person";
   $("#btn-pause").textContent = c.status === "paused" ? "Resume" : "Pause";
   $("#btn-archive").textContent = c.status === "archived" ? "Unarchive" : "Archive";
   $("#btn-delete").hidden = c.status !== "archived";
@@ -430,7 +445,7 @@ $("#form-more").addEventListener("submit", async e => {
   e.preventDefault();
   const c = contact(), f = e.target;
   try {
-    await api("POST", `/api/contacts/${c.id}/update`, { notes: f.elements.notes.value });
+    await api("POST", `/api/contacts/${c.id}/update`, { notes: f.elements.notes.value, role: f.elements.role.value });
     const t = f.elements.thread.value;
     if (t !== (c.thread_id || "new") || (t === "new" && c.thread_id)) {
       if (await ask(t === "new" ? "Start a fresh thread for this guest?" : "Move this guest to the selected thread?",
@@ -441,7 +456,7 @@ $("#form-more").addEventListener("submit", async e => {
   } catch (err) { $("#more-error").textContent = err.message; }
 });
 
-const SETTINGS = ["owner", "topic", "guide_name", "status_message", "library_map", "greeting"];
+const SETTINGS = ["owner", "topic", "guide_name", "status_message", "library_map", "greeting", "agent_greeting", "agent_budget"];
 $("#btn-settings").onclick = async () => {
   const f = $("#form-settings"), me = state.snap.self;
   $("#settings-facts").innerHTML = [["Agent Tox ID", me.tox_id || "Tox disabled"], ["Tox network", me.connection], ["Delivery", state.snap.ingress]]

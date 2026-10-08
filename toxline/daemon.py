@@ -17,6 +17,7 @@ from pathlib import Path
 from . import config
 from . import db as dbmod
 from .httpserver import App, HttpError
+from .ingress import ROLES
 from .transport import LoopbackTransport
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -88,6 +89,7 @@ class Service:
         self._lanes_lock = threading.Lock()
         self._typing = {}                  # contact_id -> bool, what the guest currently sees
         self._parts = {}                   # pk -> partial long message being reassembled
+        self._send_lock = threading.Lock()  # budget check and the message it counts happen together
         for t in [self.loop] + ([tox] if tox else []):
             t.on_message = lambda pk, text, t=t: self._incoming(t, pk, text)
             t.on_receipt = lambda pk, mid, t=t: self._receipt(t, pk, mid)
@@ -114,6 +116,7 @@ class Service:
                 continue   # old and probably delivered with a lost receipt; don't spam a duplicate
             self.j.set_message(m["id"], state="offline_queued",
                                detail="re-sending: not confirmed before toxline restarted")
+        (dbmod.HOME / "drafts").mkdir(parents=True, exist_ok=True)   # where agents write long messages
         self.loop.start()
         if self.tox:
             self.tox.start()
@@ -326,12 +329,27 @@ class Service:
             raise HttpError(409, f"{c['name']} is archived")
         held = c["hold_outgoing"] or c["status"] == "paused"
         why = "held: outgoing on hold" if c["hold_outgoing"] else "held: bridge paused"
-        m = self.j.add_message(c["id"], "out", body, "held" if held else "sending",
-                               thread_id=c["thread_id"], detail=why if held else f"from {origin}")
+        with self._send_lock:
+            if not held and origin != "owner" and self.over_budget(c):
+                held, why = True, self.BUDGET_HELD
+            m = self.j.add_message(c["id"], "out", body, "held" if held else "sending",
+                                   thread_id=c["thread_id"], detail=why if held else f"from {origin}",
+                                   origin=origin)
         log(f"out {c['id']}: {body[:60]!r}" + (" [held]" if held else ""))
         if not held:
             m = self._transmit(m)
         return m
+
+    # Two agents can keep answering each other forever. In agent conversations, once our agent
+    # has sent the budgeted number of messages, the rest wait for the owner; releasing one
+    # starts a fresh budget.
+    BUDGET_HELD = "held: message budget for this agent conversation is used up"
+
+    def over_budget(self, c):
+        if (c.get("role") or "person") == "person":
+            return False
+        since = self.j.get(f"budget_from:{c['id']}", 0)
+        return self.j.count_out_since(c["id"], since) >= config.agent_budget()
 
     def _transmit(self, m):
         c = self.j.contact(m["contact_id"])
@@ -340,9 +358,14 @@ class Service:
             return self.j.set_message(m["id"], state="offline_queued",
                                       detail=f"{c['name']} is offline; will send when they connect")
         try:
-            ids = t.send(c["public_key"], m["body"])
+            # Another Toxline rejoins split parts exactly; chat apps get tidy, trimmed parts.
+            ids = t.send(c["public_key"], m["body"], exact=(c.get("role") or "person") != "person")
         except Exception as e:
             return self.j.set_message(m["id"], state="failed", detail=f"{type(e).__name__}: {e}")
+        if self._typing.get(c["id"]):
+            self._typing[c["id"]] = False
+            t.set_typing(c["public_key"], False)
+            self.j.event("typing", c["id"], on=False)
         return self.j.set_message(m["id"], state="sent", tox_ids=ids, detail="")
 
     def release(self, mid, body=None):
@@ -353,7 +376,18 @@ class Service:
             if not body.strip():
                 raise HttpError(400, "empty message")
             self.j.set_message(mid, body=body)
-        self.j.set_message(mid, state="sending")
+        with self._send_lock:
+            if m["detail"] == self.BUDGET_HELD:
+                # The owner let the conversation continue: a fresh budget starts after this message.
+                key = f"budget_from:{m['contact_id']}"
+                self.j.put(key, max(self.j.get(key, 0), m["created_at"]))
+                self.j.event("budget_reset", m["contact_id"])
+            elif (m["state"] == "held" and m.get("origin") != "owner"
+                  and self.over_budget(self.j.contact(m["contact_id"]))):
+                # Held for another reason (hold/pause) and the budget ran out meanwhile: it stays
+                # held, now for the budget, so going on is a deliberate choice.
+                return self.j.set_message(mid, detail=self.BUDGET_HELD)
+            self.j.set_message(mid, state="sending")
         return self._transmit(self.j.message(mid))
 
     def discard(self, mid):
@@ -408,6 +442,8 @@ class Service:
             log("auto-accepted friend request from known guest", c["id"])
             return
         self.requests[pk] = {"public_key": pk, "greeting": greeting, "at": time.time(),
+                             "agent": config.AGENT_TAG in (greeting or ""),
+                             "role": c["role"] if c else None,
                              "returning": c["name"] if c else None,
                              "thread_id": c["thread_id"] if c else None}
         self.j.event("friend_request", None, public_key=pk, greeting=greeting)
@@ -417,13 +453,15 @@ class Service:
         self.j.event("self_connection", None, status=status)
 
     # -------------------------------------------------------------- guests
-    def add_guest(self, name, tox_id="", kind="tox", thread="new", notes="", greeting=""):
+    def add_guest(self, name, tox_id="", kind="tox", thread="new", notes="", greeting="", role=""):
         """Validate everything first, then create; roll back if a later step fails."""
         name = (name or "").strip()
         if not name:
             raise HttpError(400, "name is required")
         if kind not in ("tox", "test"):
             raise HttpError(400, "kind must be tox or test")
+        if role and role not in ROLES:
+            raise HttpError(400, "role must be person, agent or consult")
         thread = norm_thread(thread)
         if kind == "test":
             import secrets
@@ -446,7 +484,8 @@ class Service:
             if existing and existing["status"] != "archived":
                 raise HttpError(409, f"that Tox key already belongs to {existing['name']}")
             if existing:   # an archived guest coming back: restore them
-                c = self.j.update_contact(existing["id"], name=name, notes=notes or existing["notes"])
+                c = self.j.update_contact(existing["id"], name=name, notes=notes or existing["notes"],
+                                          role=role or existing.get("role") or "person")
                 if thread != c["thread_id"]:
                     self.rebind(c["id"], thread)
                 self.set_status(c["id"], "active")
@@ -456,7 +495,7 @@ class Service:
                 tox_id = None
         taken = {c["id"] for c in self.j.contacts(include_archived=True)}
         cid = slugify(name, taken)
-        c = self.j.add_contact(cid, name, pk, tox_id=tox_id, notes=notes, kind=kind)
+        c = self.j.add_contact(cid, name, pk, tox_id=tox_id, notes=notes, kind=kind, role=role or "person")
         try:
             self._befriend(c, greeting)
             if thread == "new":
@@ -482,8 +521,8 @@ class Service:
             t.accept_request(c["public_key"])
             self.requests.pop(c["public_key"], None)
         else:
-            t.add_friend(c["tox_id"] or c["public_key"],
-                         greeting or config.fill(config.load()["greeting"], name=c["name"]))
+            default = config.load()["agent_greeting" if c.get("role") == "consult" else "greeting"]
+            t.add_friend(c["tox_id"] or c["public_key"], greeting or config.fill(default, name=c["name"]))
 
     def delete_guest(self, cid):
         c = self.j.contact(cid)
@@ -560,6 +599,9 @@ class Service:
             c["unread"] = unread.get(c["id"], 0)
             if c["kind"] == "test":
                 c["online"] = "udp"
+            if (c.get("role") or "person") != "person":
+                since = self.j.get(f"budget_from:{c['id']}", 0)
+                c["budget"] = {"used": self.j.count_out_since(c["id"], since), "limit": config.agent_budget()}
             out.append(c)
         out.sort(key=lambda c: -(c["last"]["created_at"] if c["last"] else c["created_at"]))
         return {
@@ -611,7 +653,7 @@ def build_app(svc):
                 raise HttpError(400, f"{k} must be text")
             return v or default
         return svc.add_guest(text("name"), text("tox_id"), text("kind", "tox"), text("thread", "new"),
-                             text("notes"), text("greeting"))
+                             text("notes"), text("greeting"), text("role"))
 
     @app.route("POST", "/api/contacts/:cid/update")
     def update(cid, body, **_):
@@ -619,7 +661,9 @@ def build_app(svc):
             raise HttpError(404, "no such guest")
         if "status" in body:
             svc.set_status(cid, body.pop("status"))
-        allowed = {k: body[k] for k in ("name", "notes", "hold_outgoing") if k in body}
+        allowed = {k: body[k] for k in ("name", "notes", "hold_outgoing", "role") if k in body}
+        if "role" in allowed and allowed["role"] not in ROLES:
+            raise HttpError(400, "role must be person, agent or consult")
         for k in ("name", "notes"):
             if k in allowed and not isinstance(allowed[k], str):
                 raise HttpError(400, f"{k} must be text")

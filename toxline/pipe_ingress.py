@@ -73,12 +73,14 @@ def rpc(path, method, params=None, timeout=60):
 
 
 def find_pipe():
+    if os.name != "nt":
+        return None     # Codex Desktop's pipe is Windows-only; elsewhere toxline uses its app-server
     for name in os.listdir(PIPE_DIR):
         if not name.startswith(PREFIX):
             continue
         path = PIPE_DIR + name
         try:
-            tools = (rpc(path, "tools/list", {"threadStartKind": "all"}, timeout=3) or {}).get("tools", [])
+            tools = (rpc(path, "tools/list", {"threadStartKind": "all"}, timeout=8) or {}).get("tools", [])
         except Exception:
             continue
         if any(t.get("name") == "send_message_to_thread" for t in tools):
@@ -95,16 +97,22 @@ class DesktopIngress(CodexIngress):
         super().__init__(journal, port)
         self._pipe = None
         self._pipe_lock = threading.Lock()
+        self._probed_at = 0      # when find_pipe last came up empty (probing costs seconds)
+        self._delivered = {}     # thread_id -> when we last delivered into it (typing stays on until handled)
 
     def pipe(self, refresh=False):
         with self._pipe_lock:
             if refresh or not self._pipe:
+                if not self._pipe and time.time() - self._probed_at < 5:
+                    return None      # just looked and found nothing; don't stall callers again
                 self._pipe = find_pipe()
+                self._probed_at = 0 if self._pipe else time.time()
                 log("Desktop app-tools pipe:", self._pipe or "not found")
             return self._pipe
 
     def describe(self):
-        return ("Codex Desktop (send_message_to_thread)" if self.pipe()
+        # Reads the cached pipe only: the viewer asks often and must never wait on a probe.
+        return ("Codex Desktop (send_message_to_thread)" if self._pipe
                 else "Codex app-server fallback (Codex Desktop not found)")
 
     def _call(self, path, tid, text):
@@ -118,26 +126,50 @@ class DesktopIngress(CodexIngress):
             raise RuntimeError(json.dumps(r)[:300])
         return r
 
-    def submit(self, tid, text, retry_locked=True, max_wait=None):
-        if not tid:
-            return {"state": "pending", "detail": "guest has no agent thread"}
+    def _via_desktop(self, tid, text):
         for attempt in range(2):
             path = self.pipe(refresh=attempt > 0)
             if not path:
-                break
+                return None
             try:
                 self._call(path, tid, text)
                 # Desktop has started (or steered into) a turn; the watcher reports when it ends.
+                self._delivered[tid] = time.time()
                 self._emit(tid, "turn_started", {})
                 return {"state": "delivered_to_thread", "detail": "Codex Desktop send_message_to_thread"}
-            except (OSError, ConnectionError, TimeoutError) as e:
+            except TimeoutError:
+                # The call may still have gone through (Desktop was slow to answer). Resending
+                # would risk a duplicate, so count it as delivered and say it's unconfirmed.
+                log("Desktop pipe call timed out; treating as delivered (unconfirmed)")
+                self._delivered[tid] = time.time()
+                return {"state": "delivered_to_thread",
+                        "detail": "Codex Desktop didn't confirm in time; it most likely went in"}
+            except (OSError, ConnectionError) as e:
                 log("Desktop pipe call failed, re-discovering:", e)
             except RuntimeError as e:
                 # Desktop refused (e.g. toxline's own app-server still holds a thread it just made).
                 log("Desktop refused delivery:", e)
-                break
-        log("Codex Desktop unavailable; using app-server fallback")
-        return super().submit(tid, text, retry_locked=retry_locked, max_wait=max_wait)
+                return None
+        return None
+
+    def submit(self, tid, text, retry_locked=True, max_wait=None):
+        if not tid:
+            return {"state": "pending", "detail": "guest has no agent thread"}
+        started = time.time()
+        while True:
+            r = self._via_desktop(tid, text)
+            if r:
+                return r
+            log("Codex Desktop unavailable; trying the app-server fallback")
+            r = super().submit(tid, text, retry_locked=retry_locked,
+                               max_wait=30 if retry_locked else max_wait)
+            if r["state"] != "waiting_for_desktop" or not retry_locked:
+                return r
+            # Desktop holds the thread, so Desktop is running and its pipe was only briefly
+            # unreachable (it stalls while busy). Go back to it rather than waiting on the lock.
+            if max_wait is not None and time.time() - started > max_wait:
+                return r
+            self._pipe = None
 
     # ------------------------------------------------------------ watching
     def _tool(self, tool, args, caller, timeout=90):
@@ -155,6 +187,37 @@ class DesktopIngress(CodexIngress):
             return json.loads(text)
         except ValueError:
             return text
+
+    def create_thread(self, contact):
+        """A new, visible Codex Desktop thread for this guest, seeded with the current brief.
+
+        The brief is the persona template filled from config (owner, topic, reference map) plus
+        the guest's notes, so updating Settings updates every future guest without pasteovers."""
+        caller = self.j.get("home_thread") or next(
+            (c["thread_id"] for c in self.j.contacts() if c.get("thread_id")), None)
+        if not caller or not self.pipe():
+            return super().create_thread(contact)   # no Desktop: toxline's own app-server
+        if not self.j.get("home_thread"):
+            caller = self.home_thread(caller)
+        from . import config
+        cfg = config.load()
+        first = ""
+        if cfg.get("library_map") and (contact.get("role") or "person") != "consult":
+            lib = Path(cfg["library_map"]).parent
+            reads = [lib / n for n in ("OPERATOR-FACTS.md", "PRIMER.md", "GUIDE-MAP.md") if (lib / n).exists()]
+            if reads:
+                first = "Before your first reply, read " + ", ".join(f"`{r}`" for r in reads) + ". "
+        prompt = self.brief(contact) + "\n\n---\n\n" + first + self.opening(contact)
+        here = str(Path(__file__).resolve().parent.parent).lower()
+        projects = self._tool("list_projects", {}, caller).get("projects", [])
+        proj = max((p for p in projects if here.startswith(p["path"].lower().rstrip("\\") + "\\")),
+                   key=lambda p: len(p["path"]), default=None)
+        target = ({"type": "project", "projectId": proj["projectId"], "environment": {"type": "local"}}
+                  if proj else {"type": "projectless", "directoryName": f"tox-{contact['id']}"})
+        r = self._tool("create_thread", {"title": f"Tox · {contact['name']}", "prompt": prompt,
+                                         "target": target}, caller)
+        log("created Desktop thread for", contact["name"], r.get("threadId"))
+        return r["threadId"]
 
     def home_thread(self, any_thread):
         """A small 'Toxline service' thread used only as the caller for wait_threads
@@ -186,16 +249,25 @@ class DesktopIngress(CodexIngress):
                     home = self.home_thread(threads[0])
                     targets = [dict({"threadId": t}, **({"afterCursor": cursors[t]} if t in cursors else {}))
                                for t in threads]
-                    r = self._tool("wait_threads", {"targets": targets, "timeoutMs": 60000}, home, timeout=130)
+                    r = self._tool("wait_threads", {"targets": targets, "timeoutMs": 20000}, home, timeout=130)
                     for poll in (r.get("polls") or []) if isinstance(r, dict) else []:
                         tid = (poll.get("thread") or {}).get("id")
                         if not tid:
                             continue
                         cursors[tid] = poll.get("cursor") or cursors.get(tid)
+                        turn = poll.get("latestTurn") or {}
                         running = (poll.get("thread") or {}).get("status", {}).get("type") == "active" or \
-                            (poll.get("latestTurn") or {}).get("status") == "inProgress"
-                        if not running:
-                            self._emit(tid, "turn_completed", {})
+                            turn.get("status") == "inProgress"
+                        if running:
+                            continue
+                        since = self._delivered.get(tid)
+                        done_at = turn.get("completedAt") or 0
+                        # A poll can land before Desktop has even started the turn for our message:
+                        # only call it finished once a turn completed after we delivered (or it's stale).
+                        if since and done_at < since - 1 and time.time() - since < 600:
+                            continue
+                        self._delivered.pop(tid, None)
+                        self._emit(tid, "turn_completed", {})
                 except Exception as e:
                     log("watch error:", e)
                     self._pipe = None

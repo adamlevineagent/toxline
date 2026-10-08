@@ -25,10 +25,18 @@ for ($i = 0; $i -lt $argv.Count; $i++) {
     '--file'   { $i++; $file = $argv[$i] }
     '--to'     { $i++; $to = $argv[$i] }
     '--thread' { $i++; $thread = $argv[$i] }
+    '--port'   { $i++; $port = $argv[$i]; $base = "http://127.0.0.1:$port" }
+    '--home'   { $i++; $home_ = $argv[$i]; $outbox = Join-Path $home_ 'outbox' }
     '-h'       { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 7 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
     '--help'   { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 7 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
     default    { $text += $argv[$i] }
   }
+}
+if ($env:TOXLINE_CMD_SHIM -eq '1' -and ($text.Count -gt 0 -or (-not $file -and -not $who))) {
+  # cmd has already expanded %VARS% and may have removed quotes. Even plain-looking
+  # text cannot be trusted here; only file contents bypass that argument parsing.
+  [Console]::Error.WriteLine('tox-send: inline messages are unsafe through tox-send.cmd. Use --file <path>, or call tox-send.ps1 directly from PowerShell.')
+  exit 2
 }
 if (-not $thread) { [Console]::Error.WriteLine('tox-send: no CODEX_THREAD_ID here; pass --thread <id>'); exit 2 }
 
@@ -40,7 +48,7 @@ function Invoke-Toxline($op, $payload) {
     }
     $json = [Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Compress))
     return Invoke-RestMethod -Method Post -Uri "$base/api/send" -Body $json -ContentType 'application/json; charset=utf-8' -TimeoutSec 30
-  } catch [System.Net.WebException] {
+  } catch {
     if ($_.Exception.Response) {
       $msg = $_.ErrorDetails.Message
       try { $msg = ($msg | ConvertFrom-Json).error } catch {}
@@ -78,7 +86,8 @@ if ($who) {
   $shared = @($r.contacts).Count -gt 1
   foreach ($c in @($r.contacts)) {
     $hold = if ($c.hold_outgoing -eq 1) { ', OUTGOING ON HOLD' } else { '' }
-    "This thread talks to $($c.name) (guest id $($c.id), Tox $($c.online), status $($c.status)$hold)."
+    $what = if ($c.role -eq 'consult') { ', an AI agent you are questioning' } elseif ($c.role -eq 'agent') { ', an AI agent' } else { '' }
+    "This thread talks to $($c.name)$what (guest id $($c.id), Tox $($c.online), status $($c.status)$hold)."
   }
   if ($shared) { 'Shared thread: use --to NAME (or --to all) when sending.' }
   foreach ($m in $r.recent) {
@@ -114,6 +123,7 @@ $failed = $false
 foreach ($res in @($r.results)) {
   $m = $res.message
   $s = if ($states.ContainsKey($m.state)) { $states[$m.state] } else { $m.state.ToUpper() }
+  if ($m.state -eq 'held' -and $m.detail -like '*budget*') { $s = 'HELD - the message budget for this agent conversation is used up. Stop here and tell your owner; it goes out only if they release it' }
   "To $($res.to.name): $s (message id $($m.id), $($m.body.Length) chars)"
   if ($m.state -eq 'failed') { $failed = $true }
 }

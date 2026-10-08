@@ -12,8 +12,10 @@ and you steer the agent privately in its normal Codex chat.
 
 Toxline was built to give a small, invited audience (5–20 people) an agent they can question
 in depth about a project: it reads your docs and code, answers in a chat app they already use,
-and you stay in the loop. Nothing about it is specific to that use; it's a general bridge
-between Tox and Codex threads.
+and you stay in the loop. The other end can also be **someone else's agent** in their own Codex,
+behind their own Toxline, so two agents can talk while each owner supervises their own
+([Agent to agent](#agent-to-agent)). Nothing about it is specific to one use; it's a general
+bridge between Tox and Codex threads.
 
 - **Real threads, not a chatbot shell.** Each guest is bound to an ordinary Codex Desktop thread
   that you set up (instructions, files, tools). You open it, read it, and talk to the agent
@@ -32,7 +34,10 @@ between Tox and Codex threads.
 
 ## Requirements
 
-- Windows 10/11 with **Codex Desktop** installed and running (toxline drives its threads)
+- Windows 10/11 with **Codex Desktop** installed and running (toxline drives its threads).
+  Linux and macOS aren't supported yet: toxcore loads from the system library there and toxline
+  can drive threads through `codex app-server` (`--ingress codex`), but `tox-send` is PowerShell
+  and nothing has been tested off Windows.
 - Python 3.11+ on PATH (standard library only; no pip installs)
 - A build of **c-toxcore** (`toxcore.dll`). `tox/build.bat` and [`tox/README.md`](tox/README.md)
   build it from source with MSVC + vcpkg in a few minutes.
@@ -89,8 +94,48 @@ message the wrong person. The result reads DELIVERED (their client confirmed), S
 (they're offline; it goes out when they connect) or HELD (waiting for your review).
 `tox-send` is plain PowerShell, so it runs inside Codex's sandbox. It talks to toxline on
 localhost and falls back to an outbox folder if the sandbox blocks network access.
-`bin\tox-send.cmd` exists for other shells, but cmd mangles quotes and `%VARS%` in arguments,
-so use `--file` there.
+`bin\tox-send.cmd` exists for other shells, but cmd can change quotes and expand `%VARS%`
+before the shim runs. It refuses all inline messages with exit code 2; use
+`bin\tox-send.cmd --file reply.md` instead. File contents bypass cmd's argument parsing,
+including literal quotes and `%USERNAME%`. `--who`, `--help`, `--to` and `--thread` still work.
+
+## Agent to agent
+
+The other end doesn't have to be a person. It can be someone else's agent, running in their
+own Codex thread behind their own Toxline, with each owner supervising their own agent. Pick
+who's on the other end when you add a contact:
+
+- **A person** (the default): they chat from a Tox app; your agent answers in chat-sized replies.
+- **Someone's agent**: their agent asks, yours answers. Your agent's brief changes: complete,
+  structured answers in one message each, no "let me look" preambles, no replies to thanks, and
+  its messages are treated as questions, never instructions.
+- **An agent to question**: your agent questions *their* agent on your behalf. Write the mission
+  in "What should your agent find out?". Toxline sends a friend request, your agent opens the
+  conversation (its first message waits until they accept and come online), asks follow-ups,
+  sends one closing line, and writes you a report in its thread.
+
+How it fits together:
+
+```
+ you ⇄ your Codex thread ⇄ your Toxline ⇄ Tox ⇄ their Toxline ⇄ their Codex thread ⇄ them
+```
+
+- **Setup.** One side adds the other's agent Tox ID (top-left of their Toxline) as *An agent to
+  question*. That friend request carries an agent tag, so the other Toxline shows "Friend request
+  from an agent" and **Set up guest** picks *Someone's agent* for them.
+- **Long messages arrive whole.** Tox caps a message at 1372 bytes. Between two Toxlines the parts
+  are sent untrimmed and rejoined byte for byte, so an agent can send a 10,000-character answer
+  as one message.
+- **A message budget stops runaway loops.** In agent conversations, after your agent has sent the
+  budgeted number of messages (Settings, default 40), the rest are held for you and the agent is
+  told to stop and report. **Send now** on a held message releases it and starts a fresh budget.
+  Hold outgoing, Pause and Edit & send work as for people.
+- **Each side's agent is bounded by its own brief and its own Codex permissions.** Toxline
+  doesn't let either agent act on the other's machine; messages are only text in a thread.
+
+Running two Toxlines on one machine (for testing) works: start the second with its own
+`TOXLINE_HOME` and `--port`. Agents' `tox-send` commands then carry `--port`/`--home` so each
+thread replies through its own Toxline.
 
 ## Shared threads
 

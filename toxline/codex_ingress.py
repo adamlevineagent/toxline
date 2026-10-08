@@ -115,12 +115,19 @@ class CodexIngress(BaseIngress):
     def brief(self, contact):
         from . import config
         cfg = config.load()
-        about = contact.get("notes") or "(no notes about this guest)"
-        lib = cfg["library_map"]
+        role = contact.get("role") or "person"
+        notes = (contact.get("notes") or "").strip()
+        if role == "consult":
+            about = notes or f"(none yet: wait for {cfg['owner']} to tell you what to find out)"
+        else:
+            about = f"Name: {contact['name']}\n{notes or '(no notes about this guest)'}"
+        lib = cfg["library_map"] if role != "consult" else ""
         return config.fill(
-            self.persona_text(),
-            tox_send=f'& "{TOX_SEND}"',
-            about=f"Name: {contact['name']}\n{about}",
+            self.brief_template(contact),
+            name=contact["name"],
+            drafts=str(dbmod.HOME / "drafts"),
+            tox_send=self.tox_send_cmd(),
+            about=about,
             topic_clause=f" about {cfg['topic']}" if cfg["topic"] else "",
             library_clause=(f"Ground your answers in the reference material. Start from `{lib}` and read "
                             f"before answering anything specific.\n" if lib else
@@ -147,8 +154,7 @@ class CodexIngress(BaseIngress):
         # A first turn makes the thread real on disk (and visible in Codex Desktop) right away.
         self._start_turn(tid, (
             f"[Toxline] This thread is now connected to {contact['name']} over Tox. "
-            f"Run `& \"{TOX_SEND}\" --who` in PowerShell to confirm the connection, then reply here in one short line. "
-            f"Do not message {contact['name']} yet; wait for them to write first unless you're asked to."))
+            f"Run `{self.tox_send_cmd()} --who` in PowerShell to confirm the connection. " + self.opening(contact)))
         return tid
 
     def list_threads(self, q=""):
@@ -192,9 +198,6 @@ class CodexIngress(BaseIngress):
         return out
 
     # -------------------------------------------------------------- delivery
-    def envelope(self, contact, message):
-        return f"[Tox message from {contact['name']}]\n{message['body']}"
-
     def deliver(self, contact, message):
         return self.submit(contact["thread_id"], self.envelope(contact, message))
 

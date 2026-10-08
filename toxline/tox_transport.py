@@ -174,12 +174,17 @@ class ToxTransport(Transport):
             return "none" if fn is None else CONN.get(self.node.friend_connection_status(fn), "none")
         return self._call(go)
 
-    def send(self, pk, text):
+    def send(self, pk, text, exact=False):
+        """exact: send the parts untrimmed, for a peer Toxline that rejoins them byte for byte.
+        Chat apps show each part as its own bubble, so for people the edges are trimmed."""
         def go():
             fn = self._fn(pk)
             if fn is None:
                 raise RuntimeError("not a Tox friend yet")
-            return self.node.send_message(fn, text)
+            parts = toxcore.split_message(text)
+            if not exact:
+                parts = [p.strip("\n") for p in parts]
+            return [self.node.send_message_raw(fn, p) for p in parts if p.strip() or (exact and p)]
         return self._call(go)
 
     def set_typing(self, pk, on):
