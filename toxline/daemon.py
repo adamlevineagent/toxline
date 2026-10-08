@@ -993,6 +993,12 @@ def build_app(svc):
         cfg = config.save({k: v for k, v in body.items() if isinstance(v, str)})
         if svc.tox and (cfg["guide_name"], cfg["status_message"]) != (before["guide_name"], before["status_message"]):
             svc.tox.set_name(cfg["guide_name"][:120], cfg["status_message"][:200])
+        if cfg.get("auto_accept") == "on" and before.get("auto_accept") != "on":
+            # Requests already waiting go to the public agent too (returning contacts stay yours to restore).
+            for r in list(svc.requests.values()):
+                if not r.get("returning"):
+                    threading.Thread(target=svc._auto_accept, args=(r["public_key"], r.get("greeting") or ""),
+                                     daemon=True).start()
         j.event("settings", None)
         return cfg
 
