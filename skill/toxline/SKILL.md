@@ -66,6 +66,10 @@ parse the output.
 3. If the owner's name in `toxctl settings` is still `the owner`, ask the user their name and what
    their agent should be called, then `toxctl settings owner="Name" guide_name="Name's agent"`.
 
+To pick up new Toxline code or recover a stuck service, use `toxctl restart`. Never start a second
+`toxlined.py` yourself: if the owner runs Toxline under a Windows scheduled task named "Toxline",
+`toxctl start` / `restart` work through it, and a second instance would fight the first.
+
 ## What the user will ask, and how to do it
 
 ### "Have my agent ask their agent about X" / "talk to this agent: <Tox ID>"

@@ -4,6 +4,7 @@ The viewer's everyday controls, as commands. Contacts can be named by id or by n
 
   python toxctl.py status                     service, Tox network, Codex Desktop, contacts, requests
   python toxctl.py start                      start the service if it isn't running
+  python toxctl.py restart                    restart it (e.g. to pick up new code)
   python toxctl.py chat NAME [--last N]       the chat as the other side sees it
   python toxctl.py thread NAME [--turns N]    what the agent did privately in its thread
   python toxctl.py wait NAME [--after MSG]    block until something new happens in that chat
@@ -163,6 +164,65 @@ def cmd_status(a):
     out(s, a, show)
 
 
+TASK = "Toxline"   # Windows Task Scheduler task that supervises toxlined, if the owner set one up
+
+
+def scheduled_task():
+    if os.name != "nt" or PORT != 8765:
+        return False
+    return subprocess.run(["schtasks", "/Query", "/TN", TASK], capture_output=True).returncode == 0
+
+
+def wait_until_up(log):
+    for _ in range(90):
+        time.sleep(1)
+        try:
+            call("GET", "/api/state", timeout=3)
+            break
+        except Down:
+            pass
+    else:
+        tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-15:] if log.exists() else []
+        sys.exit("toxctl: Toxline didn't start. Last log lines:\n" + "\n".join(tail))
+    print(f"Toxline is running on port {PORT} (viewer: {BASE}/, log: {log}).")
+    for _ in range(60):
+        if call("GET", "/api/state", timeout=5)["self"]["connection"] != "none":
+            print("It's on the Tox network.")
+            return
+        time.sleep(1)
+    print("Not on the Tox network yet after a minute: check the firewall allows Python (see docs/TROUBLESHOOTING.md).")
+
+
+def listener_pid():
+    out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[1].endswith(f":{PORT}") and parts[3] == "LISTENING":
+            return int(parts[4])
+    return None
+
+
+def cmd_restart(a):
+    log = ROOT / "state" / "toxline.log"
+    if scheduled_task():
+        # The supervisor restarts toxlined when it exits, so end just that process. (Ending the task
+        # itself stops the supervisor but leaves toxlined running, and a second one would collide.)
+        pid = listener_pid()
+        if pid:
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+            print(f"Stopped toxlined (pid {pid}); the {TASK} supervisor brings it back.")
+        else:
+            subprocess.run(["schtasks", "/Run", "/TN", TASK], capture_output=True)
+            print(f"Started the {TASK} scheduled task.")
+        for _ in range(20):          # wait for the old one to be gone before waiting for the new one
+            time.sleep(1)
+            if listener_pid() != pid:
+                break
+        return wait_until_up(log)
+    sys.exit("toxctl: no supervising task here. Stop toxlined (close its window or end the python process), "
+             "then run: python toxctl.py start")
+
+
 def cmd_start(a):
     try:
         call("GET", "/api/state", timeout=5)
@@ -171,6 +231,10 @@ def cmd_start(a):
     except Down:
         pass
     log = ROOT / "state" / "toxline.log"
+    if scheduled_task():
+        subprocess.run(["schtasks", "/Run", "/TN", TASK], capture_output=True)
+        print(f"Started the {TASK} scheduled task (it keeps Toxline running).")
+        return wait_until_up(log)
     log.parent.mkdir(exist_ok=True)
     flags = 0x08000000 if os.name == "nt" else 0   # CREATE_NO_WINDOW
     subprocess.Popen([sys.executable, "-X", "utf8", str(ROOT / "toxlined.py"), "--ingress",
@@ -447,6 +511,7 @@ def main(argv=None):
 
     sp = p("status", cmd_status, "service, network, contacts, requests"); sp.add_argument("--all", action="store_true", help="include archived")
     p("start", cmd_start, "start the service if needed", False)
+    p("restart", cmd_restart, "restart the service", False)
     p("id", cmd_id, "print this Toxline's Tox ID", False)
     sp = p("chat", cmd_chat, "show a chat"); sp.add_argument("name"); sp.add_argument("--last", type=int, default=40)
     sp = p("thread", cmd_thread, "show the agent's private thread"); sp.add_argument("name"); sp.add_argument("--turns", type=int, default=5, help="1-10")
