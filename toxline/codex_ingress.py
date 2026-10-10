@@ -55,14 +55,37 @@ class CodexIngress(BaseIngress):
         with self._start_lock:
             if self.server and self.server.alive:
                 return self.server
+            self._kill_stale_server()
             s = AppServer(client_name="Codex Desktop", log=log)
             s.listeners.append(self._notify)
             s.server_request_handler = self._server_request
             s.start()
+            try:
+                (dbmod.HOME / "appserver.pid").write_text(str(s.proc.pid))
+            except Exception:
+                pass
             self.server = s
             self.active_turn.clear()
             log("app-server started:", s.exe)
             return s
+
+    @staticmethod
+    def _kill_stale_server():
+        """An app-server left behind by an earlier toxline run (killed without its children) keeps
+        threads locked so nothing else can write to them. Stop it before starting ours."""
+        p = dbmod.HOME / "appserver.pid"
+        try:
+            pid = int(p.read_text().strip())
+        except (OSError, ValueError):
+            return
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True,
+                                 text=True, creationflags=subprocess.CREATE_NO_WINDOW).stdout
+            if "codex.exe" in out.lower():
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+                log("stopped a stale app-server left by an earlier run:", pid)
+        p.unlink(missing_ok=True)
 
     def describe(self):
         alive = bool(self.server and self.server.alive)

@@ -115,7 +115,7 @@ if ($up) {
   $l = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
   $p = if ($l) { Get-CimInstance Win32_Process -Filter "ProcessId=$($l.OwningProcess)" } else { $null }
   if ($p -and $p.CommandLine -like "*$app*" -and -not $here) {
-    Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue; $up = $false; Start-Sleep 2
+    taskkill /PID $p.ProcessId /T /F | Out-Null; $up = $false; Start-Sleep 2   # with its Codex app-server
   } elseif ($p -and $p.CommandLine -notlike "*$app*") {
     Say "Another Toxline is already running on this PC on port $port (installed in another folder). Leaving it alone."
     $other = $true

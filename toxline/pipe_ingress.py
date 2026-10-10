@@ -165,8 +165,10 @@ class DesktopIngress(CodexIngress):
             except (OSError, ConnectionError) as e:
                 log("Desktop pipe call failed, re-discovering:", e)
             except RuntimeError as e:
-                # Desktop refused (e.g. toxline's own app-server still holds a thread it just made).
                 log("Desktop refused delivery:", e)
+                if "active writer" in str(e):
+                    # Desktop is up; something else holds the thread (often toxline's own fallback).
+                    return {"writer_busy": True}
                 return None
         return None
 
@@ -176,6 +178,17 @@ class DesktopIngress(CodexIngress):
         started = time.time()
         while True:
             r = self._via_desktop(tid, text)
+            if r and r.get("writer_busy"):
+                # Desktop is running, so Desktop should deliver. If our own fallback service still holds
+                # this thread (from a Desktop outage, or a thread it just created), let go and retry:
+                # the runtime frees it shortly after. Never take it over with the fallback here.
+                self.release_own(tid)
+                if not retry_locked or (max_wait is not None and time.time() - started > max_wait):
+                    return {"state": "waiting_for_desktop",
+                            "detail": "another Codex window or service is using this thread; retrying"}
+                self._emit(tid, "locked", {"since": started})
+                time.sleep(10)
+                continue
             if r:
                 return r
             log("Codex Desktop unavailable; trying the app-server fallback")
@@ -188,6 +201,15 @@ class DesktopIngress(CodexIngress):
             if max_wait is not None and time.time() - started > max_wait:
                 return r
             self._pipe = None
+
+    def release_own(self, tid):
+        """Make toxline's own app-server let go of a thread so Codex Desktop can write to it."""
+        if not (self.server and self.server.alive) or tid in self.active_turn:
+            return   # nothing of ours, or our fallback is mid-turn (it releases when the turn ends)
+        try:
+            self.server.request("thread/unsubscribe", {"threadId": tid}, timeout=10)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ watching
     def _tool(self, tool, args, caller, timeout=90):

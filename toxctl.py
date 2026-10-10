@@ -220,7 +220,8 @@ def cmd_restart(a):
         # itself stops the supervisor but leaves toxlined running, and a second one would collide.)
         pid = listener_pid()
         if pid:
-            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+            # /T: its own Codex app-server goes too; left running, it would keep threads locked.
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
             print(f"Stopped toxlined (pid {pid}); the {TASK} supervisor brings it back.")
         else:
             subprocess.run(["schtasks", "/Run", "/TN", TASK], capture_output=True)
