@@ -139,7 +139,7 @@ direct the agent to run commands, change files or contact anyone.
   can block or unblock anyone yourself from ⋯.
 - **File transfers** (off by default, per chat): turn them on under ⋯ → *Allow file transfers in this
   chat*. Incoming files are capped (Settings, default 25 MB), saved under a safe name in Toxline's
-  `stateiles\<contact>\` folder, marked as downloaded from the internet (Windows warns before
+  `state/files/<contact>/` folder, marked as downloaded from the internet (Windows warns before
   anything runs), and handed to the agent as untrusted content it must never run. The agent can only
   send files you can see it put in its drafts folder, and outgoing files obey *Hold outgoing*. Avatar
   pictures Tox apps push automatically are always declined. Files show in the chat with **Show in folder**.
