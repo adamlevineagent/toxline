@@ -93,7 +93,13 @@ class Journal:
                 # existed before tiers keep the access they had, which was the single (deep) library.
                 c.execute("alter table contacts add column tier text not null default 'story'")
                 c.execute("update contacts set tier='deep'")
+            cols = {r[1] for r in c.execute("pragma table_info(contacts)")}
+            if "files" not in cols:
+                # File transfers are off for every chat until the owner turns them on for it.
+                c.execute("alter table contacts add column files integer not null default 0")
             cols = {r[1] for r in c.execute("pragma table_info(messages)")}
+            if "attachment" not in cols:
+                c.execute("alter table messages add column attachment text not null default ''")
             if "origin" not in cols:
                 # Who wrote an outbound message: agent (tox-send) or owner (viewer/API).
                 c.execute("alter table messages add column origin text not null default 'agent'")
@@ -192,14 +198,14 @@ class Journal:
         self.event("contact_deleted", cid)
 
     # --- messages ----------------------------------------------------------
-    def add_message(self, contact_id, direction, body, state, thread_id=None, detail="", origin="agent"):
+    def add_message(self, contact_id, direction, body, state, thread_id=None, detail="", origin="agent", attachment=None):
         mid = uuid.uuid4().hex[:12]
         now = time.time()
         with self._lock:
             self._conn().execute(
-                "insert into messages(id,contact_id,direction,body,created_at,state,detail,thread_id,shown_at,origin) values (?,?,?,?,?,?,?,?,?,?)",
+                "insert into messages(id,contact_id,direction,body,created_at,state,detail,thread_id,shown_at,origin,attachment) values (?,?,?,?,?,?,?,?,?,?,?)",
                 (mid, contact_id, direction, body, now, state, detail, thread_id, now if direction == "in" else None,
-                 "owner" if origin == "owner" else "agent"))
+                 "owner" if origin == "owner" else "agent", json.dumps(attachment) if attachment else ""))
         self.event("message", contact_id, id=mid, direction=direction, state=state)
         return self.message(mid)
 
@@ -270,4 +276,5 @@ class Journal:
 def _msg(r):
     d = dict(r)
     d["tox_ids"] = json.loads(d["tox_ids"] or "[]")
+    d["attachment"] = json.loads(d["attachment"]) if d.get("attachment") else None
     return d

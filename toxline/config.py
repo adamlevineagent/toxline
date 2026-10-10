@@ -27,6 +27,8 @@ DEFAULTS = {
     # Agent-to-agent conversations: how many messages your agent may send before the rest are
     # held for you (stops two agents talking forever). Releasing a held one allows this many more.
     "agent_budget": "40",
+    # File transfers (turned on per chat): the largest file accepted or sent, in MB.
+    "files_max_mb": "25",
 }
 
 AGENT_TAG = "[toxline:agent]"
@@ -37,6 +39,13 @@ def agent_budget():
         return max(1, int(load()["agent_budget"]))
     except (TypeError, ValueError):
         return int(DEFAULTS["agent_budget"])
+
+
+def files_max_bytes():
+    try:
+        return max(1, int(float(load()["files_max_mb"]) * 1024 * 1024))
+    except (TypeError, ValueError):
+        return 25 * 1024 * 1024
 
 
 def learned_file():

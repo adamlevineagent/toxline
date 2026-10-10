@@ -17,6 +17,7 @@ The viewer's everyday controls, as commands. Contacts can be named by id or by n
   python toxctl.py discard MSG                drop a held message
   python toxctl.py hold NAME on|off           hold every outgoing message for review
   python toxctl.py pause|resume|archive|unarchive NAME
+  python toxctl.py files NAME on|off          allow file transfers in that chat (off by default)
   python toxctl.py block|unblock NAME         cut someone off (nothing reaches the agent; requests ignored) / undo
   python toxctl.py delete NAME                forget them entirely (friendship, history; their own thread is archived)
   python toxctl.py notes NAME "text"          what the agent knows about them (or the mission)
@@ -298,7 +299,9 @@ def render_chat(c, msgs):
             note = "  ✓✓ delivered" if m["state"] == "delivered" else "  ✓ sent"
         if m["direction"] == "in" and m["state"] not in ("delivered_to_thread",):
             note = f"  [{m['state']}; id {m['id']}]"
-        print(f"\n--- {t} {who}{note}\n{m['body']}")
+        att = m.get("attachment")
+        body = (f"[file] {att['name']} ({att.get('size', 0)} bytes)" + (f" saved at {att['path']}" if att.get("path") else "")) if att else m["body"]
+        print(f"\n--- {t} {who}{note}\n{body}")
 
 
 def cmd_chat(a):
@@ -441,7 +444,12 @@ def cmd_discard(a):
 def update(a, **fields):
     c = find(state(), a.name)
     r = call("POST", f"/api/contacts/{c['id']}/update", fields)
-    print(f"{r['name']}: status {r['status']}, holding outgoing {'on' if r['hold_outgoing'] else 'off'}, role {r.get('role')}")
+    print(f"{r['name']}: status {r['status']}, holding outgoing {'on' if r['hold_outgoing'] else 'off'}, "
+          f"files {'on' if r.get('files') else 'off'}, role {r.get('role')}")
+
+
+def cmd_files(a):
+    update(a, files=a.state == "on")
 
 
 def cmd_hold(a):
@@ -561,6 +569,7 @@ def main(argv=None):
     sp = p("release", cmd_release, "send a held message"); sp.add_argument("msg"); sp.add_argument("--file", help="send this text instead")
     sp = p("discard", cmd_discard, "drop a held message", False); sp.add_argument("msg")
     sp = p("hold", cmd_hold, "hold outgoing on/off", False); sp.add_argument("name"); sp.add_argument("state", choices=["on", "off"])
+    sp = p("files", cmd_files, "file transfers on/off for a chat", False); sp.add_argument("name"); sp.add_argument("state", choices=["on", "off"])
     for name, status in (("pause", "paused"), ("resume", "active"), ("archive", "archived"), ("unarchive", "active"),
                          ("block", "blocked"), ("unblock", "active")):
         sp = p(name, lambda a, s=status: update(a, status=s), f"{name} a contact", False); sp.add_argument("name")

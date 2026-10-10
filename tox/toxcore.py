@@ -18,7 +18,7 @@ import os
 import sys
 import time
 from ctypes import (CFUNCTYPE, POINTER, c_bool, c_char_p, c_int, c_size_t,
-                    c_uint8, c_uint16, c_uint32, c_void_p)
+                    c_uint8, c_uint16, c_uint32, c_uint64, c_void_p)
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
@@ -49,6 +49,9 @@ TOX_ERR_NEW = ["OK", "NULL", "MALLOC", "PORT_ALLOC", "PROXY_BAD_TYPE", "PROXY_BA
 TOX_ERR_FRIEND_ADD = ["OK", "NULL", "TOO_LONG", "NO_MESSAGE", "OWN_KEY", "ALREADY_SENT",
                       "BAD_CHECKSUM", "SET_NEW_NOSPAM", "MALLOC"]
 TOX_ERR_SEND = ["OK", "NULL", "FRIEND_NOT_FOUND", "FRIEND_NOT_CONNECTED", "SENDQ", "TOO_LONG", "EMPTY"]
+TOX_FILE_KIND_DATA, TOX_FILE_KIND_AVATAR = 0, 1
+TOX_FILE_CONTROL_RESUME, TOX_FILE_CONTROL_PAUSE, TOX_FILE_CONTROL_CANCEL = 0, 1, 2
+TOX_ERR_FILE_SEND = ["OK", "NULL", "FRIEND_NOT_FOUND", "FRIEND_NOT_CONNECTED", "NAME_TOO_LONG", "TOO_MANY"]
 TOX_ERR_BOOTSTRAP = ["OK", "NULL", "BAD_HOST", "BAD_PORT"]
 
 
@@ -88,6 +91,10 @@ FRIEND_CONN_CB = CFUNCTYPE(None, c_void_p, c_uint32, c_int, c_void_p)
 FRIEND_RECEIPT_CB = CFUNCTYPE(None, c_void_p, c_uint32, c_uint32, c_void_p)
 FRIEND_BYTES_CB = CFUNCTYPE(None, c_void_p, c_uint32, u8p, c_size_t, c_void_p)  # name / status msg
 FRIEND_TYPING_CB = CFUNCTYPE(None, c_void_p, c_uint32, c_bool, c_void_p)
+FILE_RECV_CB = CFUNCTYPE(None, c_void_p, c_uint32, c_uint32, c_uint32, c_uint64, u8p, c_size_t, c_void_p)
+FILE_RECV_CHUNK_CB = CFUNCTYPE(None, c_void_p, c_uint32, c_uint32, c_uint64, u8p, c_size_t, c_void_p)
+FILE_CHUNK_REQUEST_CB = CFUNCTYPE(None, c_void_p, c_uint32, c_uint32, c_uint64, c_size_t, c_void_p)
+FILE_RECV_CONTROL_CB = CFUNCTYPE(None, c_void_p, c_uint32, c_uint32, c_int, c_void_p)
 
 _lib: Optional[ctypes.CDLL] = None
 
@@ -161,6 +168,13 @@ def lib() -> ctypes.CDLL:
     sig("tox_callback_friend_name", None, Tox_p, FRIEND_BYTES_CB)
     sig("tox_callback_friend_status_message", None, Tox_p, FRIEND_BYTES_CB)
     sig("tox_callback_friend_typing", None, Tox_p, FRIEND_TYPING_CB)
+    sig("tox_file_send", c_uint32, Tox_p, c_uint32, c_uint32, c_uint64, u8p, u8p, c_size_t, E)
+    sig("tox_file_send_chunk", c_bool, Tox_p, c_uint32, c_uint32, c_uint64, u8p, c_size_t, E)
+    sig("tox_file_control", c_bool, Tox_p, c_uint32, c_uint32, c_int, E)
+    sig("tox_callback_file_recv", None, Tox_p, FILE_RECV_CB)
+    sig("tox_callback_file_recv_chunk", None, Tox_p, FILE_RECV_CHUNK_CB)
+    sig("tox_callback_file_chunk_request", None, Tox_p, FILE_CHUNK_REQUEST_CB)
+    sig("tox_callback_file_recv_control", None, Tox_p, FILE_RECV_CONTROL_CB)
     _lib = L
     return L
 
@@ -252,6 +266,12 @@ class ToxNode:
         self.on_friend_name: Optional[Callable] = None
         self.on_friend_status_message: Optional[Callable] = None
         self.on_friend_typing: Optional[Callable] = None
+        # file transfers: on_file_recv(fn, file, kind, size, name), on_file_recv_chunk(fn, file, pos, data),
+        # on_file_chunk_request(fn, file, pos, length), on_file_recv_control(fn, file, control)
+        self.on_file_recv: Optional[Callable] = None
+        self.on_file_recv_chunk: Optional[Callable] = None
+        self.on_file_chunk_request: Optional[Callable] = None
+        self.on_file_recv_control: Optional[Callable] = None
         self.connection_status = TOX_CONNECTION_NONE
         self._dirty = False
         self._running = False
@@ -533,6 +553,25 @@ class ToxNode:
         """Send arbitrarily long text, split on safe boundaries. Returns message ids."""
         return [self.send_message_raw(friend_number, chunk, action) for chunk in split_message(text)]
 
+    # ------------------------------------------------------------ files
+    def file_send(self, friend_number: int, size: int, filename: str, kind: int = TOX_FILE_KIND_DATA) -> int:
+        """Offer a file to a friend. Chunks are then pulled through on_file_chunk_request."""
+        name = filename.encode("utf-8")[:255]
+        err = c_int(0)
+        num = self.L.tox_file_send(self.tox, friend_number, kind, size, None, _buf(name), len(name), ctypes.byref(err))
+        if err.value:
+            raise ToxError(f"tox_file_send failed: {_errname(TOX_ERR_FILE_SEND, err.value)}")
+        return num
+
+    def file_send_chunk(self, friend_number: int, file_number: int, position: int, data: bytes) -> bool:
+        err = c_int(0)
+        return bool(self.L.tox_file_send_chunk(self.tox, friend_number, file_number, position, _buf(data),
+                                               len(data), ctypes.byref(err)))
+
+    def file_control(self, friend_number: int, file_number: int, control: int) -> bool:
+        err = c_int(0)
+        return bool(self.L.tox_file_control(self.tox, friend_number, file_number, control, ctypes.byref(err)))
+
     def set_typing(self, friend_number: int, typing: bool) -> bool:
         err = c_int(0)
         return bool(self.L.tox_self_set_typing(self.tox, friend_number, typing, ctypes.byref(err)))
@@ -584,7 +623,23 @@ class ToxNode:
         def ftyping(_t, fn, typing, _ud):
             self._hook("on_friend_typing", fn, bool(typing))
 
+        def file_recv(_t, fn, num, kind, size, name, length, _ud):
+            self._hook("on_file_recv", fn, num, kind, size, _bytes(name, length).decode("utf-8", "replace"))
+
+        def file_recv_chunk(_t, fn, num, pos, data, length, _ud):
+            self._hook("on_file_recv_chunk", fn, num, pos, _bytes(data, length) if length else b"")
+
+        def file_chunk_request(_t, fn, num, pos, length, _ud):
+            self._hook("on_file_chunk_request", fn, num, pos, length)
+
+        def file_recv_control(_t, fn, num, control, _ud):
+            self._hook("on_file_recv_control", fn, num, control)
+
         pairs = [
+            (L.tox_callback_file_recv, FILE_RECV_CB(file_recv)),
+            (L.tox_callback_file_recv_chunk, FILE_RECV_CHUNK_CB(file_recv_chunk)),
+            (L.tox_callback_file_chunk_request, FILE_CHUNK_REQUEST_CB(file_chunk_request)),
+            (L.tox_callback_file_recv_control, FILE_RECV_CONTROL_CB(file_recv_control)),
             (L.tox_callback_self_connection_status, SELF_CONN_CB(self_conn)),
             (L.tox_callback_friend_request, FRIEND_REQUEST_CB(friend_request)),
             (L.tox_callback_friend_message, FRIEND_MESSAGE_CB(friend_message)),

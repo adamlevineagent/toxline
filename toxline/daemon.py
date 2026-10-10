@@ -4,12 +4,14 @@ Owns the Tox node, the journal, delivery into Codex threads, the tox-send API
 and the viewer. One process, one journal, one Tox identity for every guest.
 """
 import argparse
+import subprocess
 import os
 import queue
 import re
 import sys
 import threading
 import time
+import shutil
 import traceback
 import uuid
 import webbrowser
@@ -57,6 +59,39 @@ def clean_name(name, fallback="Guest"):
     one plain line with no brackets, so they can't imitate Toxline's own message headers."""
     name = re.sub(r"[\[\]()<>{}`]", "", re.sub(r"\s+", " ", name or "")).strip()
     return name[:60] or fallback
+
+
+WINDOWS_RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
+
+
+def safe_filename(name):
+    """A sender's file name, made safe to save: no folders, no device names, no odd characters."""
+    name = re.split(r"[\\/]", name or "")[-1]
+    name = re.sub(r'[\x00-\x1f<>:"|?*]', "_", name).strip(" .")
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        stem, ext = name, ""
+    if stem.lower() in WINDOWS_RESERVED or not stem:
+        stem = "_" + stem
+    ext = ext[:16]
+    return (stem[:100] + ("." + ext if ext else "")) or "file"
+
+
+def human_size(n):
+    for unit in ("bytes", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "bytes" else f"{n:.1f} {unit}"
+        n /= 1024
+
+
+def mark_downloaded(path):
+    """Tag a received file the way browsers do, so Windows warns before anything runs it."""
+    if os.name == "nt":
+        try:
+            with open(f"{path}:Zone.Identifier", "w") as f:
+                f.write("[ZoneTransfer]\nZoneId=3\n")
+        except OSError:
+            pass
 
 
 def slugify(name, taken):
@@ -108,6 +143,8 @@ class Service:
             t.on_connection = lambda pk, st, t=t: self._connection(t, pk, st)
             t.on_friend_request = lambda pk, msg, t=t: self._friend_request(t, pk, msg)
             t.on_friend_name = lambda pk, name: self._friend_name(pk, name)
+            t.on_file_offer = lambda pk, size, name, t=t: self._file_offer(pk, size, name)
+            t.on_file_done = lambda pk, ref, ok, detail="": self._file_done(pk, ref, ok, detail)
         if tox:
             tox.on_self_connection = self._self_connection
         ingress.on_activity = self._activity
@@ -172,6 +209,8 @@ class Service:
                 try:
                     if r.get("op") == "who":
                         out = self.whoami(r.get("thread_id", ""), 15)
+                    elif r.get("op") == "file":
+                        out = self.send_file(r.get("thread_id"), r.get("body", ""), r.get("to"))
                     elif r.get("op") == "block":
                         out = self.block(r.get("thread_id"), r.get("to"), r.get("body", ""))
                     elif r.get("op") == "owner":
@@ -381,6 +420,14 @@ class Service:
         if not t.friend_online(c["public_key"]):
             return self.j.set_message(m["id"], state="offline_queued",
                                       detail=f"{c['name']} is offline; will send when they connect")
+        if m.get("attachment"):
+            if not c.get("files"):
+                return self.j.set_message(m["id"], state="failed", detail="file transfers are off for this chat")
+            try:
+                t.send_file(c["public_key"], m["attachment"]["path"], m["id"], m["attachment"]["name"])
+            except Exception as e:
+                return self.j.set_message(m["id"], state="failed", detail=f"{type(e).__name__}: {e}")
+            return self.j.set_message(m["id"], state="sending", detail="sending the file…")
         try:
             # Another Toxline rejoins split parts exactly; chat apps get tidy, trimmed parts.
             ids = t.send(c["public_key"], m["body"], exact=(c.get("role") or "person") != "person")
@@ -391,6 +438,90 @@ class Service:
             t.set_typing(c["public_key"], False)
             self.j.event("typing", c["id"], on=False)
         return self.j.set_message(m["id"], state="sent", tox_ids=ids, detail="")
+
+    # --------------------------------------------------------------- files
+    # Off unless the owner turns them on for a chat. Incoming files are capped, saved under a safe name
+    # in <state>/files/<contact>/, marked as downloaded, and handed to the agent as untrusted content.
+    # The agent can only send files from its drafts folder.
+    def _file_offer(self, pk, size, name):
+        c = self.j.contact_by_key(pk)
+        if not c or c["status"] != "active":
+            return None
+        safe = safe_filename(name)
+        att = {"name": safe, "size": size}
+        if not c.get("files"):
+            self.j.add_message(c["id"], "in", f"📎 {safe}", "declined", thread_id=c["thread_id"],
+                               detail="file transfers are off for this chat", attachment=att)
+            return None
+        if size > config.files_max_bytes():
+            self.j.add_message(c["id"], "in", f"📎 {safe}", "declined", thread_id=c["thread_id"],
+                               detail=f"too large ({human_size(size)}; the limit is {human_size(config.files_max_bytes())})",
+                               attachment=att)
+            return None
+        folder = dbmod.HOME / "files" / c["id"]
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-{safe}"
+        n = 2
+        while path.exists():
+            path, n = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-{n}-{safe}", n + 1
+        att["path"] = str(path)
+        m = self.j.add_message(c["id"], "in", f"📎 {safe}", "receiving", thread_id=c["thread_id"],
+                               detail=f"receiving {human_size(size)}…", attachment=att)
+        log(f"in  {c['id']}: file {safe} ({human_size(size)})")
+        return str(path), m["id"]
+
+    def _file_done(self, pk, ref, ok, detail=""):
+        m = self.j.message(ref)
+        if not m:
+            return
+        if m["direction"] == "out":
+            self.j.set_message(ref, state="delivered" if ok else "failed", detail="" if ok else detail)
+            return
+        if not ok:
+            self.j.set_message(ref, state="failed", detail=detail or "the transfer failed")
+            return
+        mark_downloaded(m["attachment"]["path"])
+        c = self.j.contact(m["contact_id"])
+        if c and c["status"] == "active" and c["thread_id"]:
+            self.j.set_message(ref, state="delivering", detail="")
+            self._lane(c["id"]).put(ref)
+        else:
+            self.j.set_message(ref, state="pending", detail="")
+
+    def send_file(self, thread_id, path, to=None, origin="agent"):
+        guests = self.recipients(thread_id, to)
+        if len(guests) != 1:
+            raise HttpError(400, "send a file to one contact at a time (--to id)")
+        c = guests[0]
+        if not c.get("files"):
+            raise HttpError(403, f"file transfers are off for this chat; {config.load()['owner']} can turn them on")
+        drafts = (dbmod.HOME / "drafts").resolve()
+        p = Path(path or "").resolve()
+        if drafts not in p.parents:
+            raise HttpError(400, f"only files in your drafts folder can be sent ({drafts}); copy it there first")
+        if not p.is_file():
+            raise HttpError(404, f"no such file: {p}")
+        size = p.stat().st_size
+        if size > config.files_max_bytes():
+            raise HttpError(400, f"too large ({human_size(size)}; the limit is {human_size(config.files_max_bytes())})")
+        # Send a frozen copy, so what goes out is what was approved even if the draft changes.
+        folder = dbmod.HOME / "files" / c["id"]
+        folder.mkdir(parents=True, exist_ok=True)
+        copy = folder / f"{time.strftime('%Y%m%d-%H%M%S')}-sent-{safe_filename(p.name)}"
+        shutil.copyfile(p, copy)
+        att = {"name": safe_filename(p.name), "size": size, "path": str(copy)}
+        held = c["hold_outgoing"] or c["status"] == "paused"
+        why = "held: outgoing on hold" if c["hold_outgoing"] else "held: bridge paused"
+        with self._send_lock:
+            if not held and origin != "owner" and self.over_budget(c):
+                held, why = True, self.BUDGET_HELD
+            m = self.j.add_message(c["id"], "out", f"📎 {att['name']}", "held" if held else "sending",
+                                   thread_id=c["thread_id"], detail=why if held else f"from {origin}",
+                                   origin=origin, attachment=att)
+        log(f"out {c['id']}: file {att['name']} ({human_size(size)})" + (" [held]" if held else ""))
+        if not held:
+            m = self._transmit(m)
+        return {"message": m, "to": {"id": c["id"], "name": c["name"]}}
 
     def release(self, mid, body=None):
         m = self.j.message(mid)
@@ -865,7 +996,9 @@ def build_app(svc):
             raise HttpError(404, "no such guest")
         if "status" in body:
             svc.set_status(cid, body.pop("status"))
-        allowed = {k: body[k] for k in ("name", "notes", "hold_outgoing", "role") if k in body}
+        allowed = {k: body[k] for k in ("name", "notes", "hold_outgoing", "role", "files") if k in body}
+        if "files" in allowed:
+            allowed["files"] = 1 if allowed["files"] else 0
         if "role" in allowed and allowed["role"] not in ROLES:
             raise HttpError(400, "role must be person, agent or consult")
         for k in ("name", "notes"):
@@ -998,6 +1131,23 @@ def build_app(svc):
     @app.route("POST", "/api/messages/:mid/discard")
     def discard(mid, **_):
         return svc.discard(mid)
+
+    @app.route("POST", "/api/send_file")
+    def send_file(body, **_):
+        if not isinstance(body, dict):
+            raise HttpError(400, "expected a JSON object")
+        return svc.send_file(body.get("thread_id"), body.get("path", ""), body.get("to"))
+
+    @app.route("POST", "/api/messages/:mid/reveal")
+    def reveal(mid, **_):
+        m = j.message(mid)
+        if not m or not m.get("attachment") or not m["attachment"].get("path"):
+            raise HttpError(404, "no saved file for that message")
+        p = m["attachment"]["path"]
+        if os.name == "nt" and Path(p).exists():
+            subprocess.Popen(["explorer", "/select,", p])
+            return {"ok": True, "note": "Opened its folder"}
+        return {"ok": False, "note": p}
 
     @app.route("POST", "/api/messages/:mid/redeliver")
     def redeliver(mid, **_):

@@ -118,6 +118,8 @@
       <select name="role"><option value="person">A person</option><option value="agent">Someone's agent (asks, yours answers)</option><option value="consult">An agent your agent questions</option></select>
     </label>
     <label>About them / mission (the agent sees this in new threads)<textarea name="notes" rows="3"></textarea></label>
+    <label class="check"><input type="checkbox" name="files"> Allow file transfers in this chat
+      <span class="hint">Off by default. Incoming files are size-capped, saved under a safe name in Toxline's files folder and handed to the agent as untrusted; the agent can only send files from its drafts folder.</span></label>
     <label>Bound agent thread
       <select name="thread"></select>
     </label>
@@ -160,6 +162,7 @@
     <div class="grid2">
       <label>Greeting when your agent reaches out to an agent<input name="agent_greeting" maxlength="900"></label>
       <label>Agent conversations: messages before holding for you<input name="agent_budget" inputmode="numeric" pattern="[0-9]+" maxlength="4"></label>
+      <label>Largest file to send or accept, in MB (chats with files on)<input name="files_max_mb" inputmode="decimal" maxlength="6"></label>
     </div>
     <details><summary class="hint">Brief for threads Toxline creates itself (threads you set up keep your own instructions)</summary>
       <textarea name="persona" rows="14" spellcheck="false"></textarea>

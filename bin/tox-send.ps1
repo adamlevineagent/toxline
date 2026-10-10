@@ -9,6 +9,7 @@
 #   tox-send --to W "message"     on a thread shared by several guests: who gets it (name, id, or all)
 #   tox-send --owner [--to W] "x" flag something for your owner (access, depth, a call); not sent to the guest
 #   tox-send --block --to W "why" end a spam/abusive conversation: they're cut off, your owner is told why
+#   tox-send --send-file PATH     send a file from your drafts folder (only if your owner allowed files for this chat)
 param()
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -20,21 +21,39 @@ $outbox = Join-Path $home_ 'outbox'
 
 $argv = @($args)
 $thread = $env:CODEX_THREAD_ID
-$who = $false; $owner = $false; $block = $false; $file = $null; $to = $null; $text = @()
+$who = $false; $owner = $false; $block = $false; $sendFile = $null; $file = $null; $to = $null; $text = @()
 for ($i = 0; $i -lt $argv.Count; $i++) {
   switch ($argv[$i]) {
     '--who'    { $who = $true }
     '--owner'  { $owner = $true }
     '--block'  { $block = $true }
+    '--send-file' { $i++; $sendFile = $argv[$i] }
     '--file'   { $i++; $file = $argv[$i] }
     '--to'     { $i++; $to = $argv[$i] }
     '--thread' { $i++; $thread = $argv[$i] }
     '--port'   { $i++; $port = $argv[$i]; $base = "http://127.0.0.1:$port" }
     '--home'   { $i++; $home_ = $argv[$i]; $outbox = Join-Path $home_ 'outbox' }
-    '-h'       { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 9 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
-    '--help'   { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 9 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
+    '-h'       { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 10 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
+    '--help'   { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 10 | ForEach-Object { $_.TrimStart('# ') }; exit 0 }
     default    { $text += $argv[$i] }
   }
+}
+if ($sendFile) {
+  if (-not $thread) { [Console]::Error.WriteLine('tox-send: no CODEX_THREAD_ID here; pass --thread <id>'); exit 2 }
+  $full = (Resolve-Path -LiteralPath $sendFile -ErrorAction SilentlyContinue).Path
+  if (-not $full) { [Console]::Error.WriteLine("tox-send: no such file: $sendFile"); exit 2 }
+  $json = [Text.Encoding]::UTF8.GetBytes((@{ thread_id = $thread; path = $full; to = $to } | ConvertTo-Json -Compress))
+  try {
+    $r = Invoke-RestMethod -Method Post -Uri "$base/api/send_file" -Body $json -ContentType 'application/json; charset=utf-8' -TimeoutSec 30
+  } catch {
+    $msg = $_.ErrorDetails.Message; try { $msg = ($msg | ConvertFrom-Json).error } catch {}
+    if (-not $msg) { $msg = $_.Exception.Message }
+    [Console]::Error.WriteLine("tox-send: $msg"); exit 1
+  }
+  $m = $r.message
+  $s = switch ($m.state) { 'held' { 'HELD - waiting for your owner' } 'offline_queued' { 'QUEUED - goes out when they connect' } 'failed' { "FAILED - $($m.detail)" } default { 'SENDING - the transfer has started' } }
+  "File to $($r.to.name): $s ($($m.attachment.name))"
+  exit 0
 }
 if ($env:TOXLINE_CMD_SHIM -eq '1' -and ($text.Count -gt 0 -or (-not $file -and -not $who))) {
   # cmd has already expanded %VARS% and may have removed quotes. Even plain-looking
@@ -51,7 +70,7 @@ function Invoke-Toxline($op, $payload) {
       return Invoke-RestMethod -Uri "$base/api/whoami?thread_id=$thread&limit=15" -TimeoutSec 15
     }
     $json = [Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Compress))
-    $route = if ($op -eq 'owner') { 'owner_request' } elseif ($op -eq 'block') { 'block' } else { 'send' }
+    $route = if ($op -eq 'owner') { 'owner_request' } elseif ($op -eq 'block') { 'block' } elseif ($op -eq 'file') { 'send_file' } else { 'send' }
     return Invoke-RestMethod -Method Post -Uri "$base/api/$route" -Body $json -ContentType 'application/json; charset=utf-8' -TimeoutSec 30
   } catch {
     if ($_.Exception.Response) {

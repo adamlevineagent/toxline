@@ -22,6 +22,10 @@ function color(id) { let h = 0; for (const ch of id) h = (h * 31 + ch.charCodeAt
 function initials(name) { return name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?"; }
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function linkify(s) { return esc(s).replace(/https?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`); }
+function fmtSize(n) {
+  n = n || 0;
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " bytes";
+}
 function hhmm(t) { return new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 function dayLabel(t) {
   const d = new Date(t * 1000), now = new Date();
@@ -137,7 +141,7 @@ function contactRow(c) {
   const prefix = last ? (last.direction === "out" ? "Agent: " : "") : "";
   const dotCls = c.status === "paused" ? "paused" : (c.kind === "test" ? "udp" : c.online);
   const flags = [c.kind === "test" ? "test" : "", ROLE_BADGE[c.role] || "", isPublic(c) ? "public" : (showDeep() && c.tier === "deep" ? "deep" : ""),
-    c.hold_outgoing ? "hold" : "", c.status === "paused" ? "paused" : "", c.status === "blocked" ? "blocked" : ""].filter(Boolean);
+    c.hold_outgoing ? "hold" : "", c.files ? "files" : "", c.status === "paused" ? "paused" : "", c.status === "blocked" ? "blocked" : ""].filter(Boolean);
   const attn = n.asks ? "asks for you" : n.held ? `${n.held} held` : n.stuck ? "stuck" : "";
   a.innerHTML = `<div class="avatar" style="background:${color(c.id)}">${esc(initials(c.name))}<span class="dot ${dotCls}"></span></div>
     <div style="min-width:0"><div class="name"><span>${esc(c.name)}</span>${flags.map(f => `<span class="badge ${f === "hold" ? "held" : ""}">${f}</span>`).join("")}</div>
@@ -287,6 +291,9 @@ function inboundTag(m) {
     pending: ["kept (not delivered yet)", ""],
     delivery_failed: ["delivery to agent failed", "bad"],
     waiting_for_desktop: ["waiting: thread is open in Codex Desktop", ""],
+    receiving: ["receiving…", ""],
+    declined: ["declined: " + (m.detail || ""), "bad"],
+    failed: ["failed: " + (m.detail || ""), "bad"],
   }[m.state] || [m.state, ""];
 }
 
@@ -345,7 +352,12 @@ function renderLog(keepScroll) {
         <div class="owner-block when-mine" style="display:flex"><button data-act="edit-send" class="primary">Send edited</button><button data-act="edit-cancel" class="ghost">Cancel</button></div>`;
       log.append(el); prev = m; continue;
     }
-    el.innerHTML = `<div class="bubble">${linkify(m.body)}</div>${actions}<div class="stamp">${tag}<span>${hhmm(at)}</span>${mine ? "" : ticks(m)}</div>`;
+    const a = m.attachment;
+    const fileActions = a && a.path && ["delivered_to_thread", "delivered", "pending", "delivering", "sent", "held"].includes(m.state)
+      ? `<div class="owner-block" style="display:flex"><button data-act="reveal">Show in folder</button></div>` : "";
+    const content = a ? `<div class="file-att"><span class="clip">📎</span><span><b>${esc(a.name)}</b><br><span class="file-size">${fmtSize(a.size)}</span></span></div>`
+                      : linkify(m.body);
+    el.innerHTML = `<div class="bubble">${content}</div>${actions}${fileActions}<div class="stamp">${tag}<span>${hhmm(at)}</span>${mine ? "" : ticks(m)}</div>`;
     log.append(el);
     prev = m;
   }
@@ -391,6 +403,7 @@ $("#log").addEventListener("click", async e => {
     if (b.dataset.act === "release") await api("POST", `/api/messages/${id}/release`, {});
     if (b.dataset.act === "discard") await api("POST", `/api/messages/${id}/discard`);
     if (b.dataset.act === "redeliver") await api("POST", `/api/messages/${id}/redeliver`);
+    if (b.dataset.act === "reveal") { const r = await api("POST", `/api/messages/${id}/reveal`); toast(r.note || "Opened"); }
     if (b.dataset.act === "edit") {
       state.editing = { id, text: m.body };
       renderLog(true);
@@ -575,6 +588,7 @@ $("#btn-more").onclick = async () => {
   f.elements.notes.value = c.notes || "";
   f.elements.role.value = c.role || "person";
   f.elements.tier.value = c.tier || "story";
+  f.elements.files.checked = !!c.files;
   $("#btn-pause").textContent = c.status === "paused" ? "Resume" : "Pause";
   $("#btn-archive").textContent = c.status === "archived" ? "Unarchive" : c.status === "blocked" ? "Unblock" : "Archive";
   $("#btn-delete").hidden = false;
@@ -612,7 +626,7 @@ $("#form-more").addEventListener("submit", async e => {
   e.preventDefault();
   const c = contact(), f = e.target;
   try {
-    await api("POST", `/api/contacts/${c.id}/update`, { notes: f.elements.notes.value, role: f.elements.role.value });
+    await api("POST", `/api/contacts/${c.id}/update`, { notes: f.elements.notes.value, role: f.elements.role.value, files: f.elements.files.checked });
     if (f.elements.tier.value !== (c.tier || "story")) {
       const up = f.elements.tier.value === "deep";
       if (await ask(up ? `Move ${c.name} to the deep tier?` : `Move ${c.name} back to the public agent?`,
@@ -631,7 +645,7 @@ $("#form-more").addEventListener("submit", async e => {
   } catch (err) { $("#more-error").textContent = err.message; }
 });
 
-const SETTINGS = ["owner", "topic", "guide_name", "status_message", "library_map", "read_first", "deep_library_map", "deep_read_first", "learned_file", "auto_accept", "greeting", "agent_greeting", "agent_budget"];
+const SETTINGS = ["owner", "topic", "guide_name", "status_message", "library_map", "read_first", "deep_library_map", "deep_read_first", "learned_file", "auto_accept", "greeting", "agent_greeting", "agent_budget", "files_max_mb"];
 $("#btn-settings").onclick = async () => {
   const f = $("#form-settings"), me = state.snap.self;
   $("#settings-facts").innerHTML = [["Agent Tox ID", me.tox_id || "Tox disabled"], ["Tox network", me.connection], ["Delivery", state.snap.ingress]]

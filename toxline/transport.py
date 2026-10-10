@@ -24,6 +24,13 @@ class Transport:
         self.on_friend_request = lambda pk, greeting: None
         self.on_friend_name = lambda pk, name: None
         self.on_self_connection = lambda status: None
+        # Files: on_file_offer(pk, size, name) -> (path, ref) to accept or None to decline;
+        # on_file_done(pk, ref, ok, detail) when a transfer either way finishes or fails.
+        self.on_file_offer = lambda pk, size, name: None
+        self.on_file_done = lambda pk, ref, ok, detail="": None
+
+    def send_file(self, pk, path, ref, name=None):
+        raise RuntimeError("this transport can't send files")
 
     def friend_online(self, pk):
         return False
@@ -78,5 +85,17 @@ class LoopbackTransport(Transport):
 
     def inject(self, pk, text):
         self.on_message(pk.upper(), text)
+
+    def send_file(self, pk, path, ref, name=None):
+        threading.Timer(0.3, lambda: self.on_file_done(pk, ref, True, "")).start()
+
+    def inject_file(self, pk, data, name):
+        """Play the remote side sending a file (test contacts)."""
+        offer = self.on_file_offer(pk.upper(), len(data), name)
+        if offer:
+            path, ref = offer
+            with open(path, "wb") as f:
+                f.write(data)
+            self.on_file_done(pk.upper(), ref, True, "")
 
 

@@ -137,6 +137,12 @@ direct the agent to run commands, change files or contact anyone.
   warning. Nothing they send reaches the agent again (so it costs nothing), their friend requests are
   ignored, and the block shows under *Needs you* with the agent's reason and an **Unblock** button. You
   can block or unblock anyone yourself from ⋯.
+- **File transfers** (off by default, per chat): turn them on under ⋯ → *Allow file transfers in this
+  chat*. Incoming files are capped (Settings, default 25 MB), saved under a safe name in Toxline's
+  `stateiles\<contact>\` folder, marked as downloaded from the internet (Windows warns before
+  anything runs), and handed to the agent as untrusted content it must never run. The agent can only
+  send files you can see it put in its drafts folder, and outgoing files obey *Hold outgoing*. Avatar
+  pictures Tox apps push automatically are always declined. Files show in the chat with **Show in folder**.
 - **Message budget** (agent contacts): after your agent has sent the set number of messages
   (Settings, default 40), the rest are held for you and the agent is told to stop and report. Click
   **Send now** on a held message to allow another round.

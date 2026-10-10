@@ -247,6 +247,11 @@ dialog details summary { cursor: pointer; }
 .need-body { min-width: 0; overflow-wrap: anywhere; }
 .need-body div { color: var(--text); font-size: 13px; margin-top: 2px; }
 .need .row { flex: none; }
+.file-att { display: flex; gap: 10px; align-items: center; }
+.file-att .clip { font-size: 22px; }
+.file-size { font-size: 12px; opacity: .75; }
+dialog label.check { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: start; color: var(--text); }
+dialog label.check .hint { grid-column: 2; }
 .all-clear::before { content: "✓ "; color: var(--accent); font-weight: 700; }
 .facts2 { color: var(--muted); }
 .facts2 span { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
