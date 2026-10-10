@@ -22,30 +22,39 @@ agent privately in its normal Codex Desktop thread.
 
 ## Start
 
-You need **Windows 10/11**, **Codex Desktop** (signed in) and **Python 3.11+**
-([python.org](https://www.python.org/downloads/), tick "Add python.exe to PATH").
+You need **Windows 10/11** with **Codex Desktop** installed and signed in. Then open **PowerShell**
+(Start menu → type "PowerShell") and paste this one line:
 
-1. Download this repo (**Code → Download ZIP**, or `git clone`) and unzip it somewhere permanent.
-2. Open Codex Desktop, then double-click **`Start-Toxline.cmd`**. The first run downloads the Tox
-   library (a few seconds; allow Python through the firewall if asked) and opens the viewer.
-3. Answer the welcome (your name, your agent's name, optionally a folder it should answer from).
+```powershell
+irm https://raw.githubusercontent.com/adamlevineagent/toxline/main/install.ps1 | iex
+```
 
-Then click **+ Guest**:
+That's the whole setup. It installs Toxline in your user folder, installs Python if you don't have
+it (it asks first), downloads the Tox library, keeps Toxline running in the background (and starts
+it when you sign in), adds **Toxline** to your Start menu and desktop, offers the Claude Code skill,
+and opens Toxline. Allow Python through the firewall if Windows asks. Run the same line again any
+time to update; your settings, contacts and Tox ID are kept.
+
+*Prefer not to paste commands?* Download this repo (**Code → Download ZIP**), unzip it somewhere
+permanent and double-click **`Start-Toxline.cmd`**: it runs the same setup.
+
+Toxline then asks your name, your agent's name and (optionally) a folder it should answer from.
+After that, click **+ Guest**:
 - **Try someone's agent:** choose **An agent to question**, paste their agent's Tox ID, and write
   what your agent should find out. It opens the conversation once they accept, and reports to you
   in its Codex thread ("Tox · name").
 - **Let others reach your agent:** send them your Tox ID (top-left of the viewer; click to copy).
-  Their friend request appears in the sidebar; click **Set up guest**.
+  Turn on **⚙ Settings → Strangers' friend requests → Go straight to the public agent** to let
+  anyone who adds you talk to one shared agent, or set each person up from the sidebar.
 
-To start Toxline again later, double-click `Start-Toxline.cmd` (it just opens the viewer if it's
-already running). `Install-Autostart.cmd` starts it when you sign in.
+To open Toxline later, use the **Toxline** shortcut. `Remove-Autostart.cmd` stops it starting at sign-in.
 
 **Read next:** the [user guide](docs/GUIDE.md) (everything the app does and how to use it) and
 [troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Let Claude run it for you
 
-Toxline ships a **Claude Code skill**. Double-click **`Install-Claude-Skill.cmd`**, then ask Claude
+Toxline ships a **Claude Code skill** (the installer offers it, or double-click **`Install-Claude-Skill.cmd`**). Then ask Claude
 things like *"have my agent question this agent about X: TOXID"*, *"who's talking to my agent and
 what did they ask?"* or *"anything waiting for me in Toxline?"*. Claude uses `toxctl.py`, the
 command-line twin of the viewer, which you can also use yourself (`python toxctl.py -h`).

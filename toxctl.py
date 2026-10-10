@@ -167,6 +167,16 @@ def cmd_status(a):
 TASK = "Toxline"   # Windows Task Scheduler task that supervises toxlined, if the owner set one up
 
 
+def supervised():
+    """A toxline_supervisor.py is running for this install (it restarts toxlined when it exits)."""
+    try:
+        pid = int((ROOT / "state" / "supervisor.pid").read_text().strip())
+    except (OSError, ValueError):
+        return False
+    out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True).stdout         if os.name == "nt" else ""
+    return str(pid) in out
+
+
 def scheduled_task():
     if os.name != "nt" or PORT != 8765:
         return False
@@ -204,7 +214,7 @@ def listener_pid():
 
 def cmd_restart(a):
     log = ROOT / "state" / "toxline.log"
-    if scheduled_task():
+    if supervised() or scheduled_task():
         # The supervisor restarts toxlined when it exits, so end just that process. (Ending the task
         # itself stops the supervisor but leaves toxlined running, and a second one would collide.)
         pid = listener_pid()
@@ -231,9 +241,19 @@ def cmd_start(a):
     except Down:
         pass
     log = ROOT / "state" / "toxline.log"
+    if supervised():
+        print("Its supervisor is running and will bring it back in a few seconds.")
+        return wait_until_up(log)
     if scheduled_task():
         subprocess.run(["schtasks", "/Run", "/TN", TASK], capture_output=True)
         print(f"Started the {TASK} scheduled task (it keeps Toxline running).")
+        return wait_until_up(log)
+    if os.name == "nt" and (ROOT / "toxline_supervisor.py").exists():
+        pyw = Path(sys.executable).with_name("pythonw.exe")
+        subprocess.Popen([str(pyw if pyw.exists() else sys.executable), "-X", "utf8", str(ROOT / "toxline_supervisor.py")],
+                         cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=0x08000000, env=dict(os.environ, TOXLINE_PORT=str(PORT)))
+        print("Started Toxline under its supervisor (it restarts it if it ever stops).")
         return wait_until_up(log)
     log.parent.mkdir(exist_ok=True)
     flags = 0x08000000 if os.name == "nt" else 0   # CREATE_NO_WINDOW
